@@ -440,7 +440,16 @@ extension RunnerController {
                     let itemID = (item["id"] as? NSNumber)?.int32Value ?? 0
                     return UIAction(title: item["text"] as? String ?? "", state: index == selected ? .on : .off) { [weak self] _ in self?.send { idorid_vm_click($0, itemID) } }
                 }); button.showsMenuAsPrimaryAction = true
-            default: button.setTitle(node["text"] as? String, for: .normal)
+            default:
+                button.setTitle(node["text"] as? String, for: .normal)
+                // A plain framework Button (no app background) gets native-looking chrome.
+                if type == "Button" && node["draw"] == nil && node["bg"] == nil {
+                    button.backgroundColor = UIColor.secondarySystemFill
+                    button.layer.cornerRadius = 8
+                } else {
+                    button.backgroundColor = .clear
+                    button.layer.cornerRadius = 0
+                }
             }
         }
         if let field = view.widget as? UITextField {
