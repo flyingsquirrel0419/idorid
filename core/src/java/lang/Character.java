@@ -74,6 +74,10 @@ public final class Character implements java.io.Serializable, Comparable<Charact
     public static boolean isBmpCodePoint(int cp) { return cp >>> 16 == 0; }
     public static boolean isValidCodePoint(int cp) { return cp >= 0 && cp <= MAX_CODE_POINT; }
     public static boolean isSupplementaryCodePoint(int cp) { return cp >= 0x10000 && cp <= MAX_CODE_POINT; }
+    public static int toChars(int cp,char[] dst,int index) { char[] chars=toChars(cp);for(int i=0;i<chars.length;i++)dst[index+i]=chars[i];return chars.length; }
+    public static int codePointBefore(CharSequence s,int index) { char low=s.charAt(index-1);if(isLowSurrogate(low)&&index>1){char high=s.charAt(index-2);if(isHighSurrogate(high))return toCodePoint(high,low);}return low; }
+    public static byte getDirectionality(char c) { return getDirectionality((int)c); }
+    public static byte getDirectionality(int c) { if(c>=0x590&&c<=0x5ff)return 1; if(c>=0x600&&c<=0x8ff)return 2; if(c>='0'&&c<='9')return 3; if(c==' '||c=='\t'||c=='\n')return 12; return 0; }
     public static char[] toChars(int cp) { return cp < 0x10000 ? new char[] { (char) cp } : new char[] { highSurrogate(cp), lowSurrogate(cp) }; }
     public static String toString(int cp) { return new String(toChars(cp)); }
     public static int codePointAt(CharSequence s, int i) {

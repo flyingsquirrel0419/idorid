@@ -1,0 +1,2 @@
+package android.widget;
+public class ViewFlipper extends ViewAnimator { public ViewFlipper(android.content.Context c) { super(c); } public ViewFlipper(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public ViewFlipper(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public ViewFlipper(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); } public void startFlipping() {} public void stopFlipping() {} public boolean isFlipping() { return false; } public void setFlipInterval(int ms) {} }

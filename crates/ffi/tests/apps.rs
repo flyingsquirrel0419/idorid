@@ -138,3 +138,29 @@ fn paint_canvas_touch_and_clear() {
         .unwrap();
     assert_eq!(path[1], "");
 }
+
+/// Kotlin app (kotlin-stdlib dexed in): lambdas, sealed classes, BigDecimal,
+/// and a weighted keypad laid out by the Java layout pass.
+#[test]
+fn kotlin_calculator() {
+    let mut app = load("examples/calc.apk");
+    let v = ui(&app.launch());
+    let key = |v: &serde_json::Value, label: &str| -> i32 { id(by_text(v, label)) };
+    // the five keypad rows split the width evenly
+    let seven = by_text(&v, "7");
+    let eight = by_text(&v, "8");
+    assert_eq!(seven["frame"][2], eight["frame"][2]);
+    assert!(seven["frame"][2].as_i64().unwrap() > 60);
+    for label in ["1", "+", "2", "×", "3", "="] {
+        let k = key(&v, label);
+        ui(&app.click(k));
+    }
+    let v = ui(&app.ui());
+    by_text(&v, "1 + 2 × 3 = 7");
+    for label in ["AC", "1", "÷", "3", "="] {
+        let k = key(&v, label);
+        ui(&app.click(k));
+    }
+    let v = ui(&app.ui());
+    by_text(&v, "0.333333333333");
+}

@@ -1,0 +1,2 @@
+package java.lang.reflect;
+public final class Method extends AccessibleObject { private Method(){} public Object invoke(Object target,Object... args) throws IllegalAccessException,InvocationTargetException {throw new IllegalAccessException("Method reflection unavailable");} public String getName(){return "";} public Class<?> getReturnType(){return Object.class;} public Class<?>[] getParameterTypes(){return new Class<?>[0];} public int getModifiers(){return 0;} }

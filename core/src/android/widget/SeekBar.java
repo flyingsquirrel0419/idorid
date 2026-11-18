@@ -1,7 +1,7 @@
 package android.widget;
 import android.content.Context;
 import android.util.AttributeSet;
-public class SeekBar extends ProgressBar {
+public class SeekBar extends AbsSeekBar {
     public interface OnSeekBarChangeListener { void onProgressChanged(SeekBar s, int p, boolean fromUser); void onStartTrackingTouch(SeekBar s); void onStopTrackingTouch(SeekBar s); }
     private OnSeekBarChangeListener listener;
     public SeekBar(Context c) { super(c); setIndeterminate(false); }
@@ -15,4 +15,5 @@ public class SeekBar extends ProgressBar {
         if (listener != null) { listener.onProgressChanged(this, getProgress(), true); listener.onStopTrackingTouch(this); }
     }
     protected String idoridType() { return "SeekBar"; }
+    public SeekBar(Context c,AttributeSet a,int s) { super(c,a,s); setIndeterminate(false); } public SeekBar(Context c,AttributeSet a,int s,int r) { super(c,a,s,r); setIndeterminate(false); }
 }

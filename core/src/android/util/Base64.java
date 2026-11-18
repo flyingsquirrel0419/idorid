@@ -1,0 +1,11 @@
+package android.util;
+import java.io.ByteArrayOutputStream;
+public final class Base64 {
+    public static final int DEFAULT=0,NO_PADDING=1,NO_WRAP=2,CRLF=4,URL_SAFE=8,NO_CLOSE=16;
+    private static final String NORMAL="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", URL="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    public static String encodeToString(byte[] input,int flags){return encodeToString(input,0,input.length,flags);}
+    public static String encodeToString(byte[] input,int offset,int length,int flags){String alphabet=(flags&URL_SAFE)!=0?URL:NORMAL;StringBuilder out=new StringBuilder();int column=0,end=offset+length;for(int i=offset;i<end;i+=3){int n=Math.min(3,end-i),v=(input[i]&255)<<16;if(n>1)v|=(input[i+1]&255)<<8;if(n>2)v|=input[i+2]&255;out.append(alphabet.charAt((v>>>18)&63));out.append(alphabet.charAt((v>>>12)&63));if(n>1)out.append(alphabet.charAt((v>>>6)&63));else if((flags&NO_PADDING)==0)out.append('=');if(n>2)out.append(alphabet.charAt(v&63));else if((flags&NO_PADDING)==0)out.append('=');column+=n==3?4:(flags&NO_PADDING)!=0?n+1:4;if((flags&NO_WRAP)==0&&column>=76){if((flags&CRLF)!=0)out.append('\r');out.append('\n');column=0;}}if((flags&NO_WRAP)==0&&column>0){if((flags&CRLF)!=0)out.append('\r');out.append('\n');}return out.toString();}
+    public static byte[] encode(byte[] input,int flags){return encodeToString(input,flags).getBytes();} public static byte[] encode(byte[] input,int offset,int length,int flags){return encodeToString(input,offset,length,flags).getBytes();}
+    public static byte[] decode(String text,int flags){return decode(text.getBytes(),flags);} public static byte[] decode(byte[] input,int flags){return decode(input,0,input.length,flags);}
+    public static byte[] decode(byte[] input,int offset,int length,int flags){String alphabet=(flags&URL_SAFE)!=0?URL:NORMAL;ByteArrayOutputStream out=new ByteArrayOutputStream();int bits=0,acc=0;boolean ended=false;for(int i=offset;i<offset+length;i++){char c=(char)(input[i]&255);if(c==' '||c=='\n'||c=='\r'||c=='\t')continue;if(c=='='){ended=true;continue;}int v=alphabet.indexOf(c);if(v<0||ended)throw new IllegalArgumentException("bad base-64");acc=(acc<<6)|v;bits+=6;if(bits>=8){bits-=8;out.write((acc>>bits)&255);}}if(bits==6)throw new IllegalArgumentException("bad base-64");return out.toByteArray();}
+}

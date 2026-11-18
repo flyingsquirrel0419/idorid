@@ -1,0 +1,2 @@
+package java.lang.reflect;
+public final class Constructor<T> extends AccessibleObject { private Constructor(){} public T newInstance(Object... args) throws InstantiationException,IllegalAccessException,InvocationTargetException { throw new InstantiationException("Constructor reflection unavailable"); } public Class<T> getDeclaringClass(){return null;} public Class<?>[] getParameterTypes(){return new Class<?>[0];} }

@@ -1,0 +1,2 @@
+package java.lang.reflect;
+public final class Field extends AccessibleObject { private Field(){} public Object get(Object target) throws IllegalAccessException {throw new IllegalAccessException("Field reflection unavailable");} public void set(Object target,Object value) throws IllegalAccessException {throw new IllegalAccessException("Field reflection unavailable");} public String getName(){return "";} public Class<?> getType(){return Object.class;} public int getModifiers(){return 0;} }

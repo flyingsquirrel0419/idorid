@@ -67,4 +67,5 @@ public class ImageView extends View {
     public android.graphics.drawable.Drawable getDrawable() { return image; } public android.content.res.ColorStateList getImageTintList() { return imageTint; } public void setImageTintMode(android.graphics.PorterDuff.Mode m) { tintMode=m; } public android.graphics.PorterDuff.Mode getImageTintMode() { return tintMode; }
     public void setImageMatrix(android.graphics.Matrix m) { matrix=m; } public android.graphics.Matrix getImageMatrix() { return matrix; } public void setImageState(int[] state,boolean merge) {} public void setImageLevel(int level) { if(image!=null) image.setLevel(level); } public void setImageURI(android.net.Uri uri) {} public void setImageAlpha(int a) { imageAlpha=a; } public int getImageAlpha() { return imageAlpha; } public void setCropToPadding(boolean b) { cropToPadding=b; } public boolean getCropToPadding() { return cropToPadding; } public void setBaseline(int b) { baseline=b; } public int getBaseline() { return baseline; }
 
+ public boolean hasOverlappingRendering() { return true; }
 }

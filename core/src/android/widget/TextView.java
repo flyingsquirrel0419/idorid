@@ -54,6 +54,9 @@ public class TextView extends View {
     public void setText(CharSequence t) { setText(t, BufferType.NORMAL); }
     public void setText(CharSequence t, BufferType type) {
         CharSequence old = text;
+        if (t == null) t = "";
+        android.text.Spanned dest = new SpannableStringBuilder(old);
+        for (android.text.InputFilter filter : filters) { CharSequence changed=filter.filter(t,0,t.length(),dest,0,old.length()); if(changed!=null) t=changed; }
         requestLayout();
         if (watchers != null) for (TextWatcher w : new ArrayList<TextWatcher>(watchers)) w.beforeTextChanged(old, 0, old.length(), t == null ? 0 : t.length());
         text = t == null ? "" : t;
@@ -98,6 +101,7 @@ public class TextView extends View {
     public void setIncludeFontPadding(boolean b) { includeFontPadding=b; requestLayout(); }
     public void setMovementMethod(android.text.method.MovementMethod m) {}
     public void setTransformationMethod(android.text.method.TransformationMethod m) {
+        transformation=m;
         if (m instanceof android.text.method.PasswordTransformationMethod) inputType = 0x81; else if (inputType == 0x81) inputType = 1;
     }
     public void setInputType(int t) { inputType = t; }
@@ -217,4 +221,13 @@ public class TextView extends View {
     public void beginBatchEdit() {} public void endBatchEdit() {} protected void onTextChanged(CharSequence text,int start,int before,int count) {} protected void onSelectionChanged(int start,int end) {} public int getSelectionStart() { return selectionStart; } public int getSelectionEnd() { return selectionEnd; }
     public int getLineBounds(int line,android.graphics.Rect bounds) { int top=getPaddingTop()+line*getLineHeight(); if(bounds!=null) bounds.set(getPaddingLeft(),top,getWidth()-getPaddingRight(),top+getLineHeight()); return top+getBaseline(); } public int getOffsetForPosition(float x,float y) { return Math.max(0,Math.min(text.length(),(int)(x/Math.max(1,textSize*.55f)))); }
 
+ private android.text.method.TransformationMethod transformation; public android.text.method.TransformationMethod getTransformationMethod() { return transformation; } public android.text.Editable getEditableText() { return this instanceof EditText ? ((EditText)this).getText() : null; } public boolean onCheckIsTextEditor() { return this instanceof EditText; } public void setImeHintLocales(android.os.LocaleList l) {} public void setTextLocales(android.os.LocaleList l) { if(l!=null && !l.isEmpty()) setTextLocale(l.get(0)); }
+    private final android.text.TextPaint paint=new android.text.TextPaint();
+    private android.text.InputFilter[] filters=new android.text.InputFilter[0];
+    public void setFilters(android.text.InputFilter[] f) { if(f==null) throw new IllegalArgumentException("filters"); filters=f.clone(); }
+    public android.text.InputFilter[] getFilters() { return filters.clone(); }
+    public android.text.TextPaint getPaint() { paint.setTextSize(textSize); paint.setColor(getCurrentTextColor()); paint.setTypeface(getTypeface()); paint.setLetterSpacing(letterSpacing); return paint; }
+    public android.text.Layout getLayout() { if(getWidth()<=0) return null; return new android.text.StaticLayout(text,getPaint(),Math.max(0,getWidth()-getCompoundPaddingLeft()-getCompoundPaddingRight()),android.text.Layout.Alignment.ALIGN_NORMAL,spacingMult,spacingExtra,includeFontPadding); }
+    public android.text.TextDirectionHeuristic getTextDirectionHeuristic() { return android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR; }
+    public void setEditableFactory(android.text.Editable.Factory factory) {}
 }

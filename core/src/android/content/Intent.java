@@ -85,4 +85,24 @@ public class Intent implements Cloneable, android.os.Parcelable {
     public void writeToParcel(android.os.Parcel p, int f) { p.writeString(action); p.writeString(data==null?null:data.toString()); p.writeString(type); p.writeString(packageName); p.writeString(component==null?null:component.getPackageName()); p.writeString(component==null?null:component.getClassName()); p.writeInt(flags); p.writeBundle(extras); }
     public static final android.os.Parcelable.Creator<Intent> CREATOR = new android.os.Parcelable.Creator<Intent>() { public Intent createFromParcel(android.os.Parcel p) { Intent i=new Intent(); i.action=p.readString(); String u=p.readString(); if(u!=null) i.data=android.net.Uri.parse(u); i.type=p.readString(); i.packageName=p.readString(); String pkg=p.readString(), cls=p.readString(); if(pkg!=null) i.component=new ComponentName(pkg,cls); i.flags=p.readInt(); i.extras=p.readBundle(); return i; } public Intent[] newArray(int n) { return new Intent[n]; } };
     public String toString() { return "Intent { act=" + action + " cmp=" + (component == null ? null : component.flattenToString()) + " }"; }
+    public Intent putExtra(String k, byte v) { ex().putInt(k,v); return this; }
+    public Intent putExtra(String k, short v) { ex().putInt(k,v); return this; }
+    public byte getByteExtra(String k,byte d) { return extras==null || !extras.containsKey(k)?d:(byte)extras.getInt(k); }
+    public short getShortExtra(String k,short d) { return extras==null || !extras.containsKey(k)?d:(short)extras.getInt(k); }
+    public Intent putExtra(String k,byte[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,long[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,boolean[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,float[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,double[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,char[] v) { ex().putSerializable(k,v); return this; }
+    public Intent putExtra(String k,short[] v) { ex().putSerializable(k,v); return this; }
+    public byte[] getByteArrayExtra(String k) { return extras==null?null:(byte[])extras.getSerializable(k); }
+    public long[] getLongArrayExtra(String k) { return extras==null?null:(long[])extras.getSerializable(k); }
+    public boolean[] getBooleanArrayExtra(String k) { return extras==null?null:(boolean[])extras.getSerializable(k); }
+    public float[] getFloatArrayExtra(String k) { return extras==null?null:(float[])extras.getSerializable(k); }
+    public double[] getDoubleArrayExtra(String k) { return extras==null?null:(double[])extras.getSerializable(k); }
+    public char[] getCharArrayExtra(String k) { return extras==null?null:(char[])extras.getSerializable(k); }
+    public short[] getShortArrayExtra(String k) { return extras==null?null:(short[])extras.getSerializable(k); }
+    public Intent putIntegerArrayListExtra(String k,java.util.ArrayList<Integer> v) { ex().putIntegerArrayList(k,v); return this; }
+    public java.util.ArrayList<Integer> getIntegerArrayListExtra(String k) { return extras==null?null:extras.getIntegerArrayList(k); }
 }

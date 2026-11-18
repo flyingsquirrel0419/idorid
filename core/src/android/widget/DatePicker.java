@@ -1,0 +1,2 @@
+package android.widget;
+public class DatePicker extends FrameLayout { public DatePicker(android.content.Context c) { super(c); } public DatePicker(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public DatePicker(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public DatePicker(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); }  }

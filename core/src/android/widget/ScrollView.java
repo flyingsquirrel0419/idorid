@@ -51,4 +51,5 @@ public class ScrollView extends FrameLayout {
         }
     }
     protected String idoridType() { return "ScrollView"; }
+    public ScrollView(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

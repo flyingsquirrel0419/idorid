@@ -8,4 +8,5 @@ public class ToggleButton extends CompoundButton {
     protected String idoridType() { return "Switch"; }
     public void setTextOn(CharSequence t) {}
     public void setTextOff(CharSequence t) {}
+    public ToggleButton(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

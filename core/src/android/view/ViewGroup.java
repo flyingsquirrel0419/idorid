@@ -114,6 +114,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     protected void dispatchDraw(android.graphics.Canvas c) {}
     protected boolean drawChild(android.graphics.Canvas c, View child, long time) { return false; }
     public boolean onInterceptTouchEvent(MotionEvent e) { return false; }
+    public boolean idoridHasTouchTarget() { return touchTarget != null; }
     public View focusSearch(View focused, int direction) { return null; }
 
     protected LayoutParams generateDefaultLayoutParams() { return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT); }
@@ -154,9 +155,52 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     public void setClipToPadding(boolean b) {}
     public void setDescendantFocusability(int f) {}
     public void setLayoutTransition(Object t) {}
-    public void requestDisallowInterceptTouchEvent(boolean b) {}
+    // ---------------------------------------------------------------- touch dispatch (single pointer)
+    private View touchTarget;
+    private boolean disallowIntercept;
+    public void requestDisallowInterceptTouchEvent(boolean b) {
+        disallowIntercept = b;
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(b);
+    }
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) { touchTarget = null; disallowIntercept = false; }
+        boolean intercepted = false;
+        if (action == MotionEvent.ACTION_DOWN || touchTarget != null) {
+            intercepted = !disallowIntercept && onInterceptTouchEvent(ev);
+        } else {
+            intercepted = true;
+        }
+        if (!intercepted && action == MotionEvent.ACTION_DOWN) {
+            float x = ev.getX() + mScrollX, y = ev.getY() + mScrollY;
+            for (int i = children.size() - 1; i >= 0; i--) {
+                View c = children.get(i);
+                if (c.getVisibility() != VISIBLE) continue;
+                float lx = x - c.mLeft - c.getTranslationX(), ly = y - c.mTop - c.getTranslationY();
+                if (lx < 0 || ly < 0 || lx >= c.getWidth() || ly >= c.getHeight()) continue;
+                if (dispatchToChild(ev, c, false)) { touchTarget = c; return true; }
+            }
+        }
+        if (touchTarget == null) return super.dispatchTouchEvent(ev);
+        if (intercepted) {
+            View t = touchTarget;
+            touchTarget = null;
+            dispatchToChild(ev, t, true);
+            return true;
+        }
+        boolean handled = dispatchToChild(ev, touchTarget, false);
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) touchTarget = null;
+        return handled;
+    }
+    private boolean dispatchToChild(MotionEvent ev, View c, boolean cancel) {
+        MotionEvent e = MotionEvent.obtain(ev);
+        if (cancel) e.setAction(MotionEvent.ACTION_CANCEL);
+        e.offsetLocation(mScrollX - c.mLeft - c.getTranslationX(), mScrollY - c.mTop - c.getTranslationY());
+        boolean r = c.dispatchTouchEvent(e);
+        e.recycle();
+        return r;
+    }
     public boolean shouldDelayChildPressedState() { return false; }
-    protected void onFinishInflate() {}
 
     View findViewTraversal(int id) {
         if (id == getId()) return this;

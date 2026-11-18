@@ -17,4 +17,6 @@ public class RadioGroup extends LinearLayout {
     public void clearCheck() { for (int i = 0; i < getChildCount(); i++) { View v = getChildAt(i); if (v instanceof CompoundButton) ((CompoundButton) v).setChecked(false); } checkedId = -1; }
     public int getCheckedRadioButtonId() { return checkedId; }
     public void setOnCheckedChangeListener(OnCheckedChangeListener l) { listener = l; }
+    public RadioGroup(Context c, AttributeSet a, int s) { super(c,a,s); }
+    public RadioGroup(Context c, AttributeSet a, int s, int r) { super(c,a,s,r); }
 }

@@ -1,0 +1,2 @@
+package android.widget;
+public class ActionMenuView extends LinearLayout { public ActionMenuView(android.content.Context c) { super(c); } public ActionMenuView(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public ActionMenuView(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public ActionMenuView(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); }  }

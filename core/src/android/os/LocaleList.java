@@ -3,6 +3,9 @@ import java.util.Locale;
 public final class LocaleList {
     private final Locale[] locales;
     public LocaleList(Locale... locales) { this.locales=locales.clone(); }
+    public static LocaleList forLanguageTags(String tags){if(tags==null||tags.length()==0)return new LocaleList();String[] parts=tags.split(",");Locale[] result=new Locale[parts.length];for(int i=0;i<parts.length;i++)result[i]=Locale.forLanguageTag(parts[i]);return new LocaleList(result);}
+    public String toLanguageTags(){StringBuilder b=new StringBuilder();for(int i=0;i<locales.length;i++){if(i>0)b.append(',');b.append(locales[i].toLanguageTag());}return b.toString();}
+    public static void setDefault(LocaleList list){if(list==null||list.isEmpty())throw new IllegalArgumentException();Locale.setDefault(list.get(0));}
     public static LocaleList getDefault() { return new LocaleList(Locale.getDefault()); }
     public static LocaleList getAdjustedDefault() { return getDefault(); }
     public static LocaleList getEmptyLocaleList() { return new LocaleList(); }

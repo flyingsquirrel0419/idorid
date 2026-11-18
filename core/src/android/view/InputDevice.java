@@ -1,0 +1,4 @@
+package android.view;
+import java.util.ArrayList;
+import java.util.List;
+public class InputDevice { public static InputDevice getDevice(int id){return null;} public static int[] getDeviceIds(){return new int[0];} public int getId(){return 0;} public String getName(){return "";} public int getSources(){return 0;} public List<MotionRange> getMotionRanges(){return new ArrayList<MotionRange>();} public MotionRange getMotionRange(int axis){return null;} public MotionRange getMotionRange(int axis,int source){return null;} public static class MotionRange { public int getAxis(){return 0;} public int getSource(){return 0;} public float getMin(){return 0;} public float getMax(){return 0;} public float getRange(){return getMax()-getMin();} public float getFlat(){return 0;} public float getFuzz(){return 0;} public float getResolution(){return 0;} } }

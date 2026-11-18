@@ -6,4 +6,6 @@ public class CheckBox extends CompoundButton {
     public CheckBox(Context c, AttributeSet a) { super(c, a); }
     public CheckBox(Context c, AttributeSet a, int s) { super(c, a, s); }
     protected String idoridType() { return "CheckBox"; }
+    public CheckBox(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
+ public void setStateDescription(CharSequence description) {}
 }

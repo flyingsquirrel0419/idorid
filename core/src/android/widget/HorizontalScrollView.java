@@ -40,4 +40,5 @@ public class HorizontalScrollView extends FrameLayout {
         }
     }
     protected String idoridType() { return "HorizontalScrollView"; }
+    public HorizontalScrollView(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

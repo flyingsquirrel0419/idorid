@@ -23,6 +23,9 @@ char *idorid_vm_launch(IdoridVm *vm);
 char *idorid_vm_set_window_size(IdoridVm *vm, int32_t w, int32_t h);
 char *idorid_vm_set_size(IdoridVm *vm, int32_t view_id, int32_t w, int32_t h);
 char *idorid_vm_touch(IdoridVm *vm, int32_t view_id, int32_t action, float x, float y);
+// Touch in window (content area) coordinates, dispatched through the view tree
+// like Android (onInterceptTouchEvent, touch targets). action as above.
+char *idorid_vm_touch_window(IdoridVm *vm, int32_t action, float x, float y);
 char *idorid_vm_click(IdoridVm *vm, int32_t view_id);
 char *idorid_vm_set_text(IdoridVm *vm, int32_t view_id, const char *utf8);
 char *idorid_vm_back(IdoridVm *vm);

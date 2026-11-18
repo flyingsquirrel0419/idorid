@@ -32,4 +32,5 @@ public class EditText extends TextView {
     public void setSelection(int start, int stop) {}
     public void extendSelection(int i) {}
     protected String idoridType() { return "EditText"; }
+ public android.graphics.drawable.Drawable getTextCursorDrawable() { return null; } public boolean onTextContextMenuItem(int id) { return false; }
 }

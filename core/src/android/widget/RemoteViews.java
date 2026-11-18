@@ -1,0 +1,2 @@
+package android.widget;
+public class RemoteViews { public RemoteViews(String pkg,int layoutId) {} public void setTextViewText(int id,CharSequence text) {} public void setImageViewResource(int id,int resource) {} public void setOnClickPendingIntent(int id,android.app.PendingIntent p) {} public android.view.View apply(android.content.Context c,android.view.ViewGroup parent) { return null; } public void reapply(android.content.Context c,android.view.View v) {} }

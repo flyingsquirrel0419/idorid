@@ -3,7 +3,7 @@ package android.os;
 import java.util.HashMap;
 import java.util.Set;
 
-public class Bundle implements Parcelable, Cloneable {
+public class Bundle extends BaseBundle implements Parcelable, Cloneable {
     public static final Bundle EMPTY = new Bundle();
     private final HashMap<String, Object> map = new HashMap<String, Object>();
     public Bundle() {}

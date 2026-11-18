@@ -29,4 +29,6 @@ public class GridView extends AbsListView {
     }
     int hSpacing() { return hSpace; }
     int vSpacing() { return vSpace; }
+    public GridView(Context c,AttributeSet a,int s) { this(c,a); } public GridView(Context c,AttributeSet a,int s,int r) { this(c,a); }
+ protected void onFocusChanged(boolean gainFocus,int direction,android.graphics.Rect previous) {} public boolean onKeyDown(int keyCode,android.view.KeyEvent event) { return false; }
 }

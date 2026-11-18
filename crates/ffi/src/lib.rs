@@ -457,6 +457,18 @@ impl App {
             ],
         )
     }
+    /// Touch in window coordinates, dispatched through the Java view tree.
+    pub fn touch_window(&mut self, action: i32, x: f32, y: f32) -> String {
+        self.call(
+            "touchWindow(IFF)Ljava/lang/String;",
+            &[CallArg::Int(action), CallArg::Float(x), CallArg::Float(y)],
+        )
+    }
+    /// Down + up at a window point (a tap).
+    pub fn tap(&mut self, x: f32, y: f32) -> String {
+        self.touch_window(0, x, y);
+        self.touch_window(1, x, y)
+    }
     pub fn click(&mut self, id: i32) -> String {
         self.call("click(I)Ljava/lang/String;", &[CallArg::Int(id)])
     }
@@ -636,6 +648,7 @@ vm_fn!(idorid_vm_launch() => |app| app.launch());
 vm_fn!(idorid_vm_set_window_size(w: i32, h: i32) => |app| app.set_window_size(w, h));
 vm_fn!(idorid_vm_set_size(view_id: i32, w: i32, h: i32) => |app| app.set_size(view_id, w, h));
 vm_fn!(idorid_vm_touch(view_id: i32, action: i32, x: f32, y: f32) => |app| app.touch(view_id, action, x, y));
+vm_fn!(idorid_vm_touch_window(action: i32, x: f32, y: f32) => |app| app.touch_window(action, x, y));
 vm_fn!(idorid_vm_click(view_id: i32) => |app| app.click(view_id));
 vm_fn!(idorid_vm_long_click(view_id: i32) => |app| app.long_click(view_id));
 vm_fn!(idorid_vm_editor_action(view_id: i32) => |app| app.editor_action(view_id));

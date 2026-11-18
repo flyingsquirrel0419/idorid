@@ -376,4 +376,5 @@ public class LinearLayout extends ViewGroup {
         if (g != null) { Json.key(sb, "gravity"); Json.str(sb, g); }
         super.idoridProps(sb);
     }
+ public void onRtlPropertiesChanged(int direction) {}
 }

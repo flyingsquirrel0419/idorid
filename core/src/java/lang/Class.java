@@ -24,6 +24,12 @@ public final class Class<T> implements java.io.Serializable, java.lang.reflect.T
     public native int getModifiers();
     public static native Class<?> forName(String name) throws ClassNotFoundException;
     public static Class<?> forName(String name, boolean init, ClassLoader l) throws ClassNotFoundException { return forName(name); }
+    public <U> Class<? extends U> asSubclass(Class<U> type) { if(!type.isAssignableFrom(this))throw new ClassCastException();return (Class<? extends U>)this; }
+    public java.lang.reflect.Constructor<T> getConstructor(Class<?>... types) throws NoSuchMethodException {throw new NoSuchMethodException();}
+    public java.lang.reflect.Constructor<T> getDeclaredConstructor(Class<?>... types) throws NoSuchMethodException {throw new NoSuchMethodException();}
+    public java.lang.reflect.Field getDeclaredField(String name) throws NoSuchFieldException {throw new NoSuchFieldException(name);} public java.lang.reflect.Field getField(String name) throws NoSuchFieldException {throw new NoSuchFieldException(name);}
+    public java.lang.reflect.Method getDeclaredMethod(String name,Class<?>... types) throws NoSuchMethodException {throw new NoSuchMethodException(name);} public java.lang.reflect.Method getMethod(String name,Class<?>... types) throws NoSuchMethodException {throw new NoSuchMethodException(name);} public java.lang.reflect.Method[] getDeclaredMethods(){return new java.lang.reflect.Method[0];}
+    public Class<?>[] getInterfaces(){return new Class<?>[0];} public java.lang.reflect.Type[] getGenericInterfaces(){return getInterfaces();} public boolean isAnonymousClass(){return false;} public boolean isMemberClass(){return getName().indexOf('$')>=0;}
     public ClassLoader getClassLoader() { return ClassLoader.getSystemClassLoader(); }
     public Package getPackage() { return null; }
     public boolean desiredAssertionStatus() { return false; }

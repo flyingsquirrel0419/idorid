@@ -11,6 +11,8 @@ public class PrintWriter extends Writer {
     public void write(String s) { write(s.toCharArray(), 0, s.length()); }
     public void print(String s) { write(String.valueOf(s)); }
     public void print(Object o) { write(String.valueOf(o)); }
+    public void print(boolean b) { write(String.valueOf(b)); }
+    public void println(boolean b) { write(String.valueOf(b)+"\n"); }
     public void print(int i) { write(String.valueOf(i)); }
     public void print(char c) { write(String.valueOf(c)); }
     public void println() { write("\n"); }

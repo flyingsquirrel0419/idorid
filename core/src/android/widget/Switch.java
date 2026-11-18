@@ -8,4 +8,5 @@ public class Switch extends CompoundButton {
     int idoridExtraWidth() { return text.length() == 0 ? 51 : 59; }
     int idoridExtraHeight() { return 31; }
     protected String idoridType() { return "Switch"; }
+    public Switch(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

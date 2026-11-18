@@ -1,0 +1,3 @@
+package android.widget;
+public abstract class AbsSeekBar extends ProgressBar { public AbsSeekBar(android.content.Context c) { super(c); } public AbsSeekBar(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public AbsSeekBar(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public AbsSeekBar(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); }  private android.graphics.drawable.Drawable thumb; public void setThumb(android.graphics.drawable.Drawable d) { thumb=d; } public android.graphics.drawable.Drawable getThumb() { return thumb; }
+}

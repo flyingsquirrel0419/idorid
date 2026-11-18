@@ -7,7 +7,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.util.AttributeSet;
 
-public class View {
+public class View implements Drawable.Callback {
     public static final int VISIBLE = 0, INVISIBLE = 4, GONE = 8, NO_ID = -1;
     public static final int TEXT_ALIGNMENT_CENTER = 4, TEXT_ALIGNMENT_VIEW_START = 5, TEXT_ALIGNMENT_GRAVITY = 1;
     public interface OnClickListener { void onClick(View v); }
@@ -29,9 +29,10 @@ public class View {
     private int visibility = VISIBLE;
     private boolean enabled = true, clickable, selected, focusable;
     int pl, pt, pr, pb;
-    private int bgColor;
-    private int bgRes;
-    private float alpha = 1f, cornerRadius;
+    private Drawable mBackground, mForeground;
+    private android.content.res.ColorStateList bgTint;
+    private boolean pressed, activated, hovered;
+    private float alpha = 1f;
     private int minW, minH;
     private Object tag;
     private android.util.SparseArray<Object> keyedTags;
@@ -62,7 +63,12 @@ public class View {
         pt = (int) a.dimension("paddingTop", pt);
         pb = (int) a.dimension("paddingBottom", pb);
         String bg = a.raw("background");
-        if (bg != null) { if (bg.startsWith("c:")) bgColor = a.integer("background", 0); else if (bg.startsWith("r:")) bgRes = a.integer("background", 0); }
+        if (bg != null) {
+            if (bg.startsWith("c:")) mBackground = new ColorDrawable(a.integer("background", 0));
+            else if (bg.startsWith("r:")) { try { setBackground(getContext().getDrawable(a.integer("background", 0))); } catch (RuntimeException e) {} }
+        }
+        String fg = a.raw("foreground");
+        if (fg != null && fg.startsWith("r:")) { try { mForeground = getContext().getDrawable(a.integer("foreground", 0)); } catch (RuntimeException e) {} }
         String vis = a.string("visibility");
         if (vis != null) visibility = vis.equals("gone") || vis.equals("2") ? GONE : vis.equals("invisible") || vis.equals("1") ? INVISIBLE : VISIBLE;
         enabled = a.bool("enabled", true);
@@ -108,7 +114,22 @@ public class View {
     public void setOnLongClickListener(OnLongClickListener l) { longClick = l; }
     public void setOnTouchListener(OnTouchListener l) { touchListener = l; }
     public boolean dispatchTouchEvent(MotionEvent e) { return enabled && ((touchListener != null && touchListener.onTouch(this,e)) || onTouchEvent(e)); }
-    public boolean onTouchEvent(MotionEvent e) { if (!enabled || !clickable) return false; if (e.getActionMasked() == MotionEvent.ACTION_UP) performClick(); return true; }
+    public boolean onTouchEvent(MotionEvent e) {
+        boolean clickableNow = clickable || mOnClickListener != null || isLongClickable();
+        if (!enabled) return clickableNow;
+        if (!clickableNow) return false;
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: setPressed(true); break;
+            case MotionEvent.ACTION_MOVE:
+                if (e.getX() < -8 || e.getY() < -8 || e.getX() > getWidth() + 8 || e.getY() > getHeight() + 8) setPressed(false);
+                break;
+            case MotionEvent.ACTION_UP:
+                if (pressed) { setPressed(false); performClick(); }
+                break;
+            case MotionEvent.ACTION_CANCEL: setPressed(false); break;
+        }
+        return true;
+    }
     public void setOnFocusChangeListener(OnFocusChangeListener l) { focusListener = l; }
     public OnFocusChangeListener getOnFocusChangeListener() { return focusListener; }
     public void setOnKeyListener(OnKeyListener l) {}
@@ -142,14 +163,12 @@ public class View {
     public void setVisibility(int v) { if (v != visibility) { boolean gone = v == GONE || visibility == GONE; visibility = v; if (gone) requestLayout(); } }
     public int getVisibility() { return visibility; }
     public boolean isShown() { return visibility == VISIBLE; }
-    public void setEnabled(boolean e) { enabled = e; }
+    public void setEnabled(boolean e) { if (e != enabled) { enabled = e; refreshDrawableState(); invalidate(); } }
     public boolean isEnabled() { return enabled; }
     public void setClickable(boolean c) { clickable = c; }
     public boolean isClickable() { return clickable; }
-    public void setLongClickable(boolean c) {}
-    public void setSelected(boolean s) { selected = s; }
+    public void setSelected(boolean s) { if (s != selected) { selected = s; refreshDrawableState(); } }
     public boolean isSelected() { return selected; }
-    public void setActivated(boolean a) {}
     public void setFocusable(boolean f) { focusable = f; }
     public void setFocusableInTouchMode(boolean f) {}
     public boolean isFocusable() { return focusable; }
@@ -165,17 +184,92 @@ public class View {
     public int getPaddingBottom() { return pb; }
     public int getPaddingStart() { return pl; }
     public int getPaddingEnd() { return pr; }
-    public void setBackgroundColor(int c) { bgColor = c; bgRes = 0; }
-    public void setBackgroundResource(int id) {
-        bgRes = id; bgColor = 0;
-        if (id != 0) { try { bgColor = getResources().getColor(id); bgRes = 0; } catch (RuntimeException e) {} }
+    public void setBackgroundColor(int c) {
+        if (mBackground instanceof ColorDrawable) { ((ColorDrawable) mBackground.mutate()).setColor(c); invalidate(); }
+        else setBackground(new ColorDrawable(c));
     }
-    public void setBackground(Drawable d) { bgColor = d == null ? 0 : d.idoridColor(); cornerRadius = d instanceof android.graphics.drawable.GradientDrawable ? ((android.graphics.drawable.GradientDrawable) d).idoridRadius() : 0; }
+    public void setBackgroundResource(int id) { setBackground(id == 0 ? null : getContext().getDrawable(id)); }
+    public void setBackground(Drawable d) {
+        if (d == mBackground) return;
+        if (mBackground != null) mBackground.setCallback(null);
+        boolean sizeChange = d == null || mBackground == null || d.getMinimumWidth() != mBackground.getMinimumWidth() || d.getMinimumHeight() != mBackground.getMinimumHeight();
+        mBackground = d;
+        if (d != null) {
+            d.setCallback(this);
+            if (d.isStateful()) d.setState(getDrawableState());
+            if (bgTint != null) d.setTintList(bgTint);
+        }
+        if (sizeChange) requestLayout();
+        invalidate();
+    }
     public void setBackgroundDrawable(Drawable d) { setBackground(d); }
-    public Drawable getBackground() { return bgColor != 0 ? new ColorDrawable(bgColor) : null; }
+    public Drawable getBackground() { return mBackground; }
+    public void setBackgroundTintList(android.content.res.ColorStateList t) { bgTint = t; if (mBackground != null) { mBackground = mBackground.mutate(); mBackground.setTintList(t); } invalidate(); }
+    public android.content.res.ColorStateList getBackgroundTintList() { return bgTint; }
+    public void setForeground(Drawable d) { if (mForeground != null) mForeground.setCallback(null); mForeground = d; if (d != null) d.setCallback(this); invalidate(); }
+    public Drawable getForeground() { return mForeground; }
+
+    // ---------------------------------------------------------------- drawables & state
+    public void invalidateDrawable(Drawable who) { invalidate(); }
+    public void scheduleDrawable(Drawable who, Runnable what, long when) { HANDLER.postAtTime(what, who, when); }
+    public void unscheduleDrawable(Drawable who, Runnable what) { HANDLER.removeCallbacks(what, who); }
+    public void unscheduleDrawable(Drawable who) { HANDLER.removeCallbacksAndMessages(who); }
+    protected boolean verifyDrawable(Drawable who) { return who == mBackground || who == mForeground; }
+    public static final int[] EMPTY_STATE_SET = new int[0];
+    public static final int[] ENABLED_STATE_SET = { 0x0101009e }, PRESSED_ENABLED_STATE_SET = { 0x010100a7, 0x0101009e }, SELECTED_STATE_SET = { 0x010100a1 },
+        FOCUSED_STATE_SET = { 0x0101009c }, PRESSED_STATE_SET = { 0x010100a7 }, ENABLED_FOCUSED_STATE_SET = { 0x0101009e, 0x0101009c }, ENABLED_SELECTED_STATE_SET = { 0x0101009e, 0x010100a1 };
+    protected int[] onCreateDrawableState(int extraSpace) {
+        int n = 0;
+        int[] tmp = new int[8 + extraSpace];
+        if (enabled) tmp[n++] = 0x0101009e;
+        if (pressed) tmp[n++] = 0x010100a7;
+        if (selected) tmp[n++] = 0x010100a1;
+        if (activated) tmp[n++] = 0x010102fe;
+        if (hovered) tmp[n++] = 0x01010367;
+        tmp[n++] = 0x0101009d; // window focused
+        int[] out = new int[n + extraSpace];
+        System.arraycopy(tmp, 0, out, 0, n);
+        return out;
+    }
+    protected static int[] mergeDrawableStates(int[] base, int[] additional) {
+        int i = base.length - 1;
+        while (i >= 0 && base[i] == 0) i--;
+        System.arraycopy(additional, 0, base, i + 1, additional.length);
+        return base;
+    }
+    public final int[] getDrawableState() { return onCreateDrawableState(0); }
+    public void refreshDrawableState() { drawableStateChanged(); if (mParent instanceof ViewGroup) ((ViewGroup) mParent).childDrawableStateChanged(this); }
+    protected void drawableStateChanged() {
+        int[] st = getDrawableState();
+        boolean changed = false;
+        if (mBackground != null && mBackground.isStateful()) changed |= mBackground.setState(st);
+        if (mForeground != null && mForeground.isStateful()) changed |= mForeground.setState(st);
+        if (changed) invalidate();
+    }
+    public void jumpDrawablesToCurrentState() { if (mBackground != null) mBackground.jumpToCurrentState(); if (mForeground != null) mForeground.jumpToCurrentState(); }
+    public void drawableHotspotChanged(float x, float y) {}
+    public void setPressed(boolean p) { if (p != pressed) { pressed = p; refreshDrawableState(); } }
+    public boolean isPressed() { return pressed; }
+    public void setActivated(boolean a) { if (a != activated) { activated = a; refreshDrawableState(); } }
+    public boolean isActivated() { return activated; }
+    public void setHovered(boolean h) { if (h != hovered) { hovered = h; refreshDrawableState(); } }
+    public boolean isHovered() { return hovered; }
+    /** Android's draw order: background, content, children (host), foreground. */
+    public void draw(android.graphics.Canvas c) {
+        if (mBackground != null) { mBackground.setBounds(0, 0, getWidth(), getHeight()); mBackground.draw(c); }
+        onDraw(c);
+        onDrawForeground(c);
+    }
+    public void onDrawForeground(android.graphics.Canvas c) {
+        if (mForeground != null) { mForeground.setBounds(0, 0, getWidth(), getHeight()); mForeground.draw(c); }
+    }
+    protected void dispatchDraw(android.graphics.Canvas c) {}
+    /** idorid: whether this node needs canvas ops (custom drawing or a non-color background). */
+    boolean idoridNeedsCanvas() {
+        return (mBackground != null && !(mBackground instanceof ColorDrawable)) || mForeground != null || VMViews.overridesOnDraw(this);
+    }
     public void setAlpha(float a) { alpha = a; }
     public float getAlpha() { return alpha; }
-    public void setElevation(float e) {}
     public void setMinimumWidth(int w) { minW = w; requestLayout(); }
     public void setMinimumHeight(int h) { minH = h; requestLayout(); }
     public void setTag(Object t) { tag = t; }
@@ -188,14 +282,13 @@ public class View {
     public boolean postDelayed(Runnable r, long ms) { return HANDLER.postDelayed(r, ms); }
     public boolean removeCallbacks(Runnable r) { HANDLER.removeCallbacks(r); return true; }
     public Handler getHandler() { return HANDLER; }
-    public void invalidate() { if (VMViews.overridesOnDraw(this)) dirty = true; }
+    public void invalidate() { if (mAttached && idoridNeedsCanvas()) dirty = true; }
     public void postInvalidate() { invalidate(); }
     public void postInvalidateOnAnimation() { invalidate(); }
     public void postOnAnimation(Runnable r) { postDelayed(r,16); }
     public static boolean idoridTakeDirty() { boolean d=dirty; dirty=false; return d; }
     protected void onSizeChanged(int w,int h,int oldw,int oldh) {}
     protected void onDraw(android.graphics.Canvas c) {}
-    public void draw(android.graphics.Canvas c) { onDraw(c); }
     /** idorid: host-reported size (legacy path; layout normally sets the frame). */
     public void idoridSetSize(int w,int h) { if (w != getWidth() || h != getHeight()) setFrame(mLeft, mTop, mLeft + w, mTop + h); }
 
@@ -254,8 +347,8 @@ public class View {
         return result | (childState & MEASURED_STATE_MASK);
     }
     public static int combineMeasuredStates(int a, int b) { return a | b; }
-    protected int getSuggestedMinimumWidth() { return minW; }
-    protected int getSuggestedMinimumHeight() { return minH; }
+    protected int getSuggestedMinimumWidth() { return mBackground == null ? minW : Math.max(minW, mBackground.getMinimumWidth()); }
+    protected int getSuggestedMinimumHeight() { return mBackground == null ? minH : Math.max(minH, mBackground.getMinimumHeight()); }
     public int getMinimumWidth() { return minW; }
     public int getMinimumHeight() { return minH; }
     public final int getMeasuredWidth() { return mMeasuredWidth & MEASURED_SIZE_MASK; }
@@ -345,17 +438,297 @@ public class View {
     public void setHapticFeedbackEnabled(boolean b) {}
     public boolean performHapticFeedback(int c) { return false; }
     public void setKeepScreenOn(boolean b) {}
-    public void setTextAlignment(int a) {}
-    public void setLayoutDirection(int d) {}
     public void setScrollContainer(boolean b) {}
-    public void setOverScrollMode(int m) {}
     public void setVerticalScrollBarEnabled(boolean b) {}
     public void setHorizontalScrollBarEnabled(boolean b) {}
-    public void setSystemUiVisibility(int v) {}
     public View getFocusedChild() { return null; }
     public ViewPropertyAnimator animate() { return new ViewPropertyAnimator(this); }
-    public void startAnimation(Object a) {}
-    public void clearAnimation() {}
+
+
+    // ---------------------------------------------------------------- misc View API
+    public static final int LAYER_TYPE_NONE = 0, LAYER_TYPE_SOFTWARE = 1, LAYER_TYPE_HARDWARE = 2;
+    public static final int OVER_SCROLL_ALWAYS = 0, OVER_SCROLL_IF_CONTENT_SCROLLS = 1, OVER_SCROLL_NEVER = 2;
+    public static final int LAYOUT_DIRECTION_LTR = 0, LAYOUT_DIRECTION_RTL = 1, LAYOUT_DIRECTION_INHERIT = 2, LAYOUT_DIRECTION_LOCALE = 3;
+    public static final int TEXT_DIRECTION_INHERIT = 0, TEXT_DIRECTION_FIRST_STRONG = 1, TEXT_DIRECTION_LOCALE = 5;
+    public static final int TEXT_ALIGNMENT_INHERIT = 0, TEXT_ALIGNMENT_TEXT_START = 2, TEXT_ALIGNMENT_TEXT_END = 3, TEXT_ALIGNMENT_VIEW_END = 6;
+    public static final int FOCUS_BACKWARD = 1, FOCUS_FORWARD = 2, FOCUS_LEFT = 17, FOCUS_UP = 33, FOCUS_RIGHT = 66, FOCUS_DOWN = 130;
+    public static final int SCROLL_AXIS_NONE = 0, SCROLL_AXIS_HORIZONTAL = 1, SCROLL_AXIS_VERTICAL = 2;
+    public static final int SCROLL_INDICATOR_TOP = 1, SCROLL_INDICATOR_BOTTOM = 2, SCROLL_INDICATOR_LEFT = 4, SCROLL_INDICATOR_RIGHT = 8, SCROLL_INDICATOR_START = 16, SCROLL_INDICATOR_END = 32;
+    public static final int SYSTEM_UI_FLAG_VISIBLE = 0, SYSTEM_UI_FLAG_LOW_PROFILE = 1, SYSTEM_UI_FLAG_HIDE_NAVIGATION = 2, SYSTEM_UI_FLAG_FULLSCREEN = 4,
+        SYSTEM_UI_FLAG_LAYOUT_STABLE = 0x100, SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION = 0x200, SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN = 0x400, SYSTEM_UI_FLAG_IMMERSIVE = 0x800,
+        SYSTEM_UI_FLAG_IMMERSIVE_STICKY = 0x1000, SYSTEM_UI_FLAG_LIGHT_STATUS_BAR = 0x2000, SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR = 0x10;
+    public static final int IMPORTANT_FOR_ACCESSIBILITY_AUTO = 0, IMPORTANT_FOR_ACCESSIBILITY_YES = 1, IMPORTANT_FOR_ACCESSIBILITY_NO = 2, IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS = 4;
+    public static final int IMPORTANT_FOR_AUTOFILL_AUTO = 0, IMPORTANT_FOR_AUTOFILL_YES = 1, IMPORTANT_FOR_AUTOFILL_NO = 2, IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS = 8;
+    public static final int ACCESSIBILITY_LIVE_REGION_NONE = 0, ACCESSIBILITY_LIVE_REGION_POLITE = 1, ACCESSIBILITY_LIVE_REGION_ASSERTIVE = 2;
+    public static final int DRAG_FLAG_GLOBAL = 256, FIND_VIEWS_WITH_TEXT = 1, FIND_VIEWS_WITH_CONTENT_DESCRIPTION = 2, SCREEN_STATE_ON = 1;
+    public static final android.util.Property<View, Float> ALPHA = new FloatProp("alpha") { public void setValue(View v, float f) { v.setAlpha(f); } public Float get(View v) { return v.getAlpha(); } };
+    public static final android.util.Property<View, Float> TRANSLATION_X = new FloatProp("translationX") { public void setValue(View v, float f) { v.setTranslationX(f); } public Float get(View v) { return v.getTranslationX(); } };
+    public static final android.util.Property<View, Float> TRANSLATION_Y = new FloatProp("translationY") { public void setValue(View v, float f) { v.setTranslationY(f); } public Float get(View v) { return v.getTranslationY(); } };
+    public static final android.util.Property<View, Float> TRANSLATION_Z = new FloatProp("translationZ") { public void setValue(View v, float f) { v.setTranslationZ(f); } public Float get(View v) { return v.getTranslationZ(); } };
+    public static final android.util.Property<View, Float> X = new FloatProp("x") { public void setValue(View v, float f) { v.setX(f); } public Float get(View v) { return v.getX(); } };
+    public static final android.util.Property<View, Float> Y = new FloatProp("y") { public void setValue(View v, float f) { v.setY(f); } public Float get(View v) { return v.getY(); } };
+    public static final android.util.Property<View, Float> ROTATION = new FloatProp("rotation") { public void setValue(View v, float f) { v.setRotation(f); } public Float get(View v) { return v.getRotation(); } };
+    public static final android.util.Property<View, Float> SCALE_X = new FloatProp("scaleX") { public void setValue(View v, float f) { v.setScaleX(f); } public Float get(View v) { return v.getScaleX(); } };
+    public static final android.util.Property<View, Float> SCALE_Y = new FloatProp("scaleY") { public void setValue(View v, float f) { v.setScaleY(f); } public Float get(View v) { return v.getScaleY(); } };
+    abstract static class FloatProp extends android.util.Property<View, Float> {
+        FloatProp(String n) { super(Float.class, n); }
+        public abstract void setValue(View v, float f);
+        public void set(View v, Float f) { setValue(v, f.floatValue()); }
+    }
+
+    private float elevation, translationZ, pivotX = Float.NaN, pivotY = Float.NaN, rotationX, rotationY, transitionAlpha = 1f;
+    private int layerType, overScrollMode = OVER_SCROLL_IF_CONTENT_SCROLLS, textAlignment = TEXT_ALIGNMENT_GRAVITY, textDirection = TEXT_DIRECTION_FIRST_STRONG,
+        layoutDirection = LAYOUT_DIRECTION_LTR, systemUiVisibility, scrollIndicators, nextClusterForwardId = NO_ID, labelFor = NO_ID, nextFocusLeft = NO_ID, nextFocusRight = NO_ID;
+    private boolean longClickable, fitsSystemWindows, saveEnabled = true, saveFromParentEnabled = true, willNotDraw, nestedScrolling, transientState, focusedByDefault, keyboardCluster, screenReaderFocusable;
+    private CharSequence stateDescription, tooltipText;
+    private String transitionName;
+    private android.graphics.Rect clipBounds;
+    private java.util.List<android.graphics.Rect> gestureExclusion = new java.util.ArrayList<android.graphics.Rect>();
+    private android.graphics.PorterDuff.Mode bgTintMode;
+    private OnHoverListener hoverListener;
+    private android.view.animation.Animation currentAnimation;
+    public interface OnHoverListener { boolean onHover(View v, MotionEvent e); }
+    public interface OnCreateContextMenuListener { void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo info); }
+    public interface OnUnhandledKeyEventListener { boolean onUnhandledKeyEvent(View v, KeyEvent e); }
+    public interface OnScrollChangeListener { void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY); }
+    public interface OnGenericMotionListener { boolean onGenericMotion(View v, MotionEvent e); }
+    public interface OnContextClickListener { boolean onContextClick(View v); }
+    public interface OnSystemUiVisibilityChangeListener { void onSystemUiVisibilityChange(int visibility); }
+
+    public static class BaseSavedState extends AbsSavedState {
+        public BaseSavedState(android.os.Parcel source) { super(source); }
+        public BaseSavedState(android.os.Parcel source, ClassLoader loader) { super(source, loader); }
+        public BaseSavedState(android.os.Parcelable superState) { super(superState); }
+        public static final android.os.Parcelable.Creator<BaseSavedState> CREATOR = new android.os.Parcelable.ClassLoaderCreator<BaseSavedState>() {
+            public BaseSavedState createFromParcel(android.os.Parcel in) { return new BaseSavedState(in); }
+            public BaseSavedState createFromParcel(android.os.Parcel in, ClassLoader loader) { return new BaseSavedState(in, loader); }
+            public BaseSavedState[] newArray(int size) { return new BaseSavedState[size]; }
+        };
+    }
+
+    public void setElevation(float e) { elevation = e; }
+    public float getElevation() { return elevation; }
+    public void setTranslationZ(float z) { translationZ = z; }
+    public float getTranslationZ() { return translationZ; }
+    public float getZ() { return elevation + translationZ; }
+    public void setZ(float z) { translationZ = z - elevation; }
+    public void setPivotX(float x) { pivotX = x; }
+    public void setPivotY(float y) { pivotY = y; }
+    public float getPivotX() { return pivotX != pivotX ? getWidth() / 2f : pivotX; }
+    public float getPivotY() { return pivotY != pivotY ? getHeight() / 2f : pivotY; }
+    public boolean isPivotSet() { return pivotX == pivotX || pivotY == pivotY; }
+    public void resetPivot() { pivotX = pivotY = Float.NaN; }
+    public void setRotationX(float r) { rotationX = r; }
+    public void setRotationY(float r) { rotationY = r; }
+    public float getRotationX() { return rotationX; }
+    public float getRotationY() { return rotationY; }
+    public void setCameraDistance(float d) {}
+    public float getCameraDistance() { return 1280; }
+    public android.graphics.Matrix getMatrix() {
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setTranslate(getTranslationX(), getTranslationY());
+        m.preRotate(getRotation(), getPivotX(), getPivotY());
+        m.preScale(getScaleX(), getScaleY(), getPivotX(), getPivotY());
+        return m;
+    }
+    public void setAnimationMatrix(android.graphics.Matrix m) {}
+    public void transformMatrixToGlobal(android.graphics.Matrix m) { int[] p = new int[2]; getLocationInWindow(p); m.preTranslate(p[0], p[1]); }
+    public void transformMatrixToLocal(android.graphics.Matrix m) { int[] p = new int[2]; getLocationInWindow(p); m.postTranslate(-p[0], -p[1]); }
+    public void setTransitionAlpha(float a) { transitionAlpha = a; }
+    public float getTransitionAlpha() { return transitionAlpha; }
+    public void setTransitionName(String n) { transitionName = n; }
+    public String getTransitionName() { return transitionName; }
+    public void setTransitionVisibility(int v) { visibility = v; }
+    public void setLayerType(int type, android.graphics.Paint p) { layerType = type; }
+    public int getLayerType() { return layerType; }
+    public void setLayerPaint(android.graphics.Paint p) {}
+    public boolean hasOverlappingRendering() { return true; }
+    public void setWillNotDraw(boolean b) { willNotDraw = b; }
+    public boolean willNotDraw() { return willNotDraw; }
+    public void setWillNotCacheDrawing(boolean b) {}
+    public void setDrawingCacheEnabled(boolean b) {}
+    public void buildDrawingCache() {}
+    public void destroyDrawingCache() {}
+    public android.graphics.Bitmap getDrawingCache() { return null; }
+    public void setClipBounds(android.graphics.Rect r) { clipBounds = r == null ? null : new android.graphics.Rect(r); invalidate(); }
+    public android.graphics.Rect getClipBounds() { return clipBounds == null ? null : new android.graphics.Rect(clipBounds); }
+    public boolean getClipBounds(android.graphics.Rect out) { if (clipBounds == null) return false; out.set(clipBounds); return true; }
+    public void setClipToOutline(boolean b) {}
+    public boolean getClipToOutline() { return false; }
+    public void invalidateOutline() {}
+    public void setBackgroundTintMode(android.graphics.PorterDuff.Mode m) { bgTintMode = m; if (mBackground != null) mBackground.setTintMode(m); }
+    public android.graphics.PorterDuff.Mode getBackgroundTintMode() { return bgTintMode; }
+    public void setForegroundTintList(android.content.res.ColorStateList t) { if (mForeground != null) mForeground.setTintList(t); }
+    public void setForegroundGravity(int g) {}
+    public void setOverScrollMode(int m) { overScrollMode = m; }
+    public int getOverScrollMode() { return overScrollMode; }
+    public void setTextAlignment(int a) { textAlignment = a; }
+    public int getTextAlignment() { return textAlignment; }
+    public void setTextDirection(int d) { textDirection = d; }
+    public int getTextDirection() { return textDirection; }
+    public void setLayoutDirection(int d) { layoutDirection = d == LAYOUT_DIRECTION_RTL ? 1 : 0; }
+    public int getLayoutDirection() { return layoutDirection; }
+    public boolean isLayoutRtl() { return layoutDirection == 1; }
+    public void onRtlPropertiesChanged(int dir) {}
+    public boolean isPaddingRelative() { return false; }
+    public boolean canResolveLayoutDirection() { return true; }
+    public void setSystemUiVisibility(int v) { systemUiVisibility = v; }
+    public int getSystemUiVisibility() { return systemUiVisibility; }
+    public int getWindowSystemUiVisibility() { return systemUiVisibility; }
+    public void onWindowSystemUiVisibilityChanged(int v) {}
+    public void setOnSystemUiVisibilityChangeListener(OnSystemUiVisibilityChangeListener l) {}
+    public void setFitsSystemWindows(boolean b) { fitsSystemWindows = b; }
+    public boolean getFitsSystemWindows() { return fitsSystemWindows; }
+    protected boolean fitSystemWindows(android.graphics.Rect insets) { return false; }
+    public void getWindowVisibleDisplayFrame(android.graphics.Rect r) { View root = getRootView(); r.set(0, 0, root.getWidth(), root.getHeight()); }
+    public int getWindowVisibility() { return mAttached ? VISIBLE : GONE; }
+    protected void onWindowVisibilityChanged(int v) {}
+    public void onWindowFocusChanged(boolean b) {}
+    public boolean hasWindowFocus() { return mAttached; }
+    protected void onVisibilityChanged(View changed, int v) {}
+    public void onVisibilityAggregated(boolean visible) {}
+    protected void onConfigurationChanged(android.content.res.Configuration c) {}
+    protected void onFinishInflate() {}
+    public boolean isInEditMode() { return false; }
+    public boolean isInTouchMode() { return true; }
+    public long getDrawingTime() { return android.os.SystemClock.uptimeMillis(); }
+    public void setLongClickable(boolean c) { longClickable = c; }
+    public boolean isLongClickable() { return longClickable || longClick != null; }
+    public void setContextClickable(boolean b) {}
+    public void setSaveEnabled(boolean b) { saveEnabled = b; }
+    public boolean isSaveEnabled() { return saveEnabled; }
+    public void setSaveFromParentEnabled(boolean b) { saveFromParentEnabled = b; }
+    public boolean isSaveFromParentEnabled() { return saveFromParentEnabled; }
+    protected android.os.Parcelable onSaveInstanceState() { return AbsSavedState.EMPTY_STATE; }
+    protected void onRestoreInstanceState(android.os.Parcelable state) {}
+    public void saveHierarchyState(android.util.SparseArray<android.os.Parcelable> c) { dispatchSaveInstanceState(c); }
+    public void restoreHierarchyState(android.util.SparseArray<android.os.Parcelable> c) { dispatchRestoreInstanceState(c); }
+    protected void dispatchSaveInstanceState(android.util.SparseArray<android.os.Parcelable> c) { if (getId() != NO_ID && saveEnabled) c.put(getId(), onSaveInstanceState()); }
+    protected void dispatchRestoreInstanceState(android.util.SparseArray<android.os.Parcelable> c) { if (getId() != NO_ID) { android.os.Parcelable p = c.get(getId()); if (p != null) onRestoreInstanceState(p); } }
+    public void setHasTransientState(boolean b) { transientState = b; }
+    public boolean hasTransientState() { return transientState; }
+    public void setDuplicateParentStateEnabled(boolean b) {}
+    public boolean isDuplicateParentStateEnabled() { return false; }
+    public void setStateDescription(CharSequence d) { stateDescription = d; }
+    public CharSequence getStateDescription() { return stateDescription; }
+    public void setTooltipText(CharSequence t) { tooltipText = t; }
+    public CharSequence getTooltipText() { return tooltipText; }
+    public void setLabelFor(int id) { labelFor = id; }
+    public int getLabelFor() { return labelFor; }
+    public void setScreenReaderFocusable(boolean b) { screenReaderFocusable = b; }
+    public boolean isScreenReaderFocusable() { return screenReaderFocusable; }
+    public void setScrollIndicators(int i) { scrollIndicators = i; }
+    public void setScrollIndicators(int i, int mask) { scrollIndicators = (scrollIndicators & ~mask) | (i & mask); }
+    public int getScrollIndicators() { return scrollIndicators; }
+    public void setSystemGestureExclusionRects(java.util.List<android.graphics.Rect> r) { gestureExclusion = new java.util.ArrayList<android.graphics.Rect>(r); }
+    public java.util.List<android.graphics.Rect> getSystemGestureExclusionRects() { return gestureExclusion; }
+    public int getVerticalFadingEdgeLength() { return 0; }
+    public int getHorizontalFadingEdgeLength() { return 0; }
+    public void setVerticalFadingEdgeEnabled(boolean b) {}
+    public void setHorizontalFadingEdgeEnabled(boolean b) {}
+    public void setFadingEdgeLength(int l) {}
+    public void setScrollBarStyle(int s) {}
+    public void setScrollbarFadingEnabled(boolean b) {}
+    protected boolean awakenScrollBars() { return false; }
+    protected int computeHorizontalScrollRange() { return getWidth(); }
+    protected int computeHorizontalScrollOffset() { return mScrollX; }
+    protected int computeHorizontalScrollExtent() { return getWidth(); }
+    protected int computeVerticalScrollRange() { return getHeight(); }
+    protected int computeVerticalScrollOffset() { return mScrollY; }
+    protected int computeVerticalScrollExtent() { return getHeight(); }
+    public boolean canScrollHorizontally(int dir) {
+        int offset = computeHorizontalScrollOffset(), range = computeHorizontalScrollRange() - computeHorizontalScrollExtent();
+        if (range == 0) return false;
+        return dir < 0 ? offset > 0 : offset < range - 1;
+    }
+    public boolean canScrollVertically(int dir) {
+        int offset = computeVerticalScrollOffset(), range = computeVerticalScrollRange() - computeVerticalScrollExtent();
+        if (range == 0) return false;
+        return dir < 0 ? offset > 0 : offset < range - 1;
+    }
+    public void setNestedScrollingEnabled(boolean b) { nestedScrolling = b; }
+    public boolean isNestedScrollingEnabled() { return nestedScrolling; }
+    public boolean startNestedScroll(int axes) { return false; }
+    public void stopNestedScroll() {}
+    public boolean hasNestedScrollingParent() { return false; }
+    public boolean dispatchNestedScroll(int dxC, int dyC, int dxU, int dyU, int[] offset) { return false; }
+    public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offset) { return false; }
+    public boolean dispatchNestedFling(float vx, float vy, boolean consumed) { return false; }
+    public boolean dispatchNestedPreFling(float vx, float vy) { return false; }
+    public void setOnScrollChangeListener(OnScrollChangeListener l) {}
+    public void bringToFront() { if (mParent instanceof ViewGroup) ((ViewGroup) mParent).bringChildToFront(this); }
+    public void cancelPendingInputEvents() {}
+    public void cancelLongPress() {}
+    public void playSoundEffect(int s) {}
+    public void postOnAnimationDelayed(Runnable r, long ms) { postDelayed(r, ms + 16); }
+    public void requestApplyInsets() { requestLayout(); }
+    public boolean requestRectangleOnScreen(android.graphics.Rect r) { return false; }
+    public boolean requestRectangleOnScreen(android.graphics.Rect r, boolean immediate) { return false; }
+    public boolean getGlobalVisibleRect(android.graphics.Rect r, android.graphics.Point offset) {
+        boolean v = getGlobalVisibleRect(r);
+        if (offset != null) offset.set(r.left, r.top);
+        return v;
+    }
+    public void getFocusedRect(android.graphics.Rect r) { getDrawingRect(r); }
+    // focus: the host owns keyboard focus; Java keeps a simple model
+    public final boolean requestFocus(int direction) { return requestFocus(); }
+    public boolean requestFocus(int direction, android.graphics.Rect previous) { return requestFocus(); }
+    public final boolean requestFocusFromTouch() { return requestFocus(); }
+    public View findFocus() { return null; }
+    public boolean hasFocusable() { return focusable && visibility == VISIBLE; }
+    public boolean hasExplicitFocusable() { return hasFocusable(); }
+    public java.util.ArrayList<View> getFocusables(int dir) { java.util.ArrayList<View> l = new java.util.ArrayList<View>(); addFocusables(l, dir); return l; }
+    public void addFocusables(java.util.ArrayList<View> views, int dir) { addFocusables(views, dir, 0); }
+    public void addFocusables(java.util.ArrayList<View> views, int dir, int mode) { if (hasFocusable()) views.add(this); }
+    public void addTouchables(java.util.ArrayList<View> views) { if (clickable) views.add(this); }
+    protected void onFocusChanged(boolean gain, int dir, android.graphics.Rect prev) { if (focusListener != null) focusListener.onFocusChange(this, gain); }
+    public boolean restoreDefaultFocus() { return requestFocus(); }
+    public void setFocusedByDefault(boolean b) { focusedByDefault = b; }
+    public boolean isFocusedByDefault() { return focusedByDefault; }
+    public void setKeyboardNavigationCluster(boolean b) { keyboardCluster = b; }
+    public boolean isKeyboardNavigationCluster() { return keyboardCluster; }
+    public View keyboardNavigationClusterSearch(View current, int dir) { return null; }
+    public void addKeyboardNavigationClusters(java.util.Collection<View> views, int dir) {}
+    public void setNextClusterForwardId(int id) { nextClusterForwardId = id; }
+    public int getNextClusterForwardId() { return nextClusterForwardId; }
+    public void setNextFocusLeftId(int id) { nextFocusLeft = id; }
+    public void setNextFocusRightId(int id) { nextFocusRight = id; }
+    public void setNextFocusUpId(int id) {}
+    public void setNextFocusDownId(int id) {}
+    public void setNextFocusForwardId(int id) {}
+    public int getNextFocusLeftId() { return nextFocusLeft; }
+    public int getNextFocusRightId() { return nextFocusRight; }
+    // keys
+    public boolean dispatchKeyEvent(KeyEvent e) { return onKeyDown(e.getKeyCode(), e); }
+    public boolean dispatchKeyEventPreIme(KeyEvent e) { return false; }
+    public boolean dispatchKeyShortcutEvent(KeyEvent e) { return false; }
+    public boolean onKeyDown(int code, KeyEvent e) { return false; }
+    public boolean onKeyUp(int code, KeyEvent e) { return false; }
+    public boolean onKeyLongPress(int code, KeyEvent e) { return false; }
+    public boolean onKeyMultiple(int code, int count, KeyEvent e) { return false; }
+    public boolean onKeyPreIme(int code, KeyEvent e) { return false; }
+    public boolean onKeyShortcut(int code, KeyEvent e) { return false; }
+    public boolean onCheckIsTextEditor() { return false; }
+    public KeyEvent.DispatcherState getKeyDispatcherState() { return null; }
+    public void addOnUnhandledKeyEventListener(OnUnhandledKeyEventListener l) {}
+    public void removeOnUnhandledKeyEventListener(OnUnhandledKeyEventListener l) {}
+    // hover / generic motion
+    public void setOnHoverListener(OnHoverListener l) { hoverListener = l; }
+    public boolean dispatchHoverEvent(MotionEvent e) { return (hoverListener != null && hoverListener.onHover(this, e)) || onHoverEvent(e); }
+    public boolean onHoverEvent(MotionEvent e) { return false; }
+    public boolean dispatchGenericMotionEvent(MotionEvent e) { return false; }
+    public boolean onGenericMotionEvent(MotionEvent e) { return false; }
+    public void setOnGenericMotionListener(OnGenericMotionListener l) {}
+    public void setOnCreateContextMenuListener(OnCreateContextMenuListener l) {}
+    public void setOnContextClickListener(OnContextClickListener l) {}
+    public boolean showContextMenu() { return false; }
+    // animation
+    public void startAnimation(android.view.animation.Animation a) { currentAnimation = a; if (a != null) { a.start(); } }
+    public void setAnimation(android.view.animation.Animation a) { currentAnimation = a; }
+    public android.view.animation.Animation getAnimation() { return currentAnimation; }
+    public void clearAnimation() { if (currentAnimation != null) currentAnimation.cancel(); currentAnimation = null; }
+    public void setLeftTopRightBottom(int l, int t, int r, int b) { setFrame(l, t, r, b); }
+    public void saveAttributeDataForStyleable(android.content.Context c, int[] styleable, android.util.AttributeSet attrs, android.content.res.TypedArray t, int defStyleAttr, int defStyleRes) {}
 
     /** idorid: host type name. */
     protected String idoridType() { return "View"; }
@@ -368,8 +741,10 @@ public class View {
         Json.key(sb, "frame"); sb.append('[').append(mLeft).append(',').append(mTop).append(',').append(getWidth()).append(',').append(getHeight()).append(']');
         if (visibility != VISIBLE) { Json.key(sb, "visible"); sb.append(visibility == INVISIBLE ? "\"invisible\"" : "false"); }
         if (pl != 0 || pt != 0 || pr != 0 || pb != 0) { Json.key(sb, "padding"); sb.append('[').append(pl).append(',').append(pt).append(',').append(pr).append(',').append(pb).append(']'); }
-        if (bgColor != 0) { Json.key(sb, "bg"); Json.str(sb, android.graphics.Color.toHex(bgColor)); }
-        if (cornerRadius != 0) { Json.key(sb, "radius"); Json.num(sb, cornerRadius); }
+        if (mBackground instanceof ColorDrawable) {
+            int c = ((ColorDrawable) mBackground).getColor();
+            if (c != 0) { Json.key(sb, "bg"); Json.str(sb, android.graphics.Color.toHex(c)); }
+        }
         if (alpha != 1f) { Json.key(sb, "alpha"); Json.num(sb, alpha); }
         if (!enabled) { Json.key(sb, "enabled"); sb.append("false"); }
         if (mOnClickListener != null || clickable) { Json.key(sb, "clickable"); sb.append("true"); }
@@ -396,7 +771,7 @@ public class View {
             }
         }
         if (touchListener != null || VMViews.overridesOnTouch(this)) { Json.key(sb, "touch"); sb.append("true"); }
-        if (VMViews.overridesOnDraw(this)) { Json.key(sb, "draw"); android.graphics.Canvas c = new android.graphics.Canvas(getWidth(),getHeight()); if (visibility == VISIBLE && getWidth() > 0 && getHeight() > 0) draw(c); sb.append(c.idoridOps()); }
+        if (idoridNeedsCanvas()) { Json.key(sb, "draw"); android.graphics.Canvas c = new android.graphics.Canvas(getWidth(),getHeight()); if (visibility == VISIBLE && getWidth() > 0 && getHeight() > 0) draw(c); sb.append(c.idoridOps()); }
         idoridProps(sb);
         sb.append('}');
     }

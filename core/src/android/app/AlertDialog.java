@@ -70,5 +70,12 @@ public class AlertDialog extends Dialog {
         public Builder setOnDismissListener(DialogInterface.OnDismissListener l) { d.onDismiss = l; return this; }
         public AlertDialog create() { return d; }
         public AlertDialog show() { d.show(); return d; }
+        public Builder setCustomTitle(View v) { return this; }
+        public Builder setIcon(android.graphics.drawable.Drawable icon) { return this; }
+        public Builder setOnKeyListener(DialogInterface.OnKeyListener l) { d.setOnKeyListener(l); return this; }
+        public Builder setSingleChoiceItems(CharSequence[] items,int checked,DialogInterface.OnClickListener l) { return setItems(items,l); }
+        public Builder setMultiChoiceItems(CharSequence[] items,boolean[] checked,DialogInterface.OnMultiChoiceClickListener listener) { d.items=items; return this; }
+        public Builder setAdapter(android.widget.ListAdapter adapter,DialogInterface.OnClickListener listener) { return this; }
+        public Builder setView(View view,int left,int top,int right,int bottom) { return setView(view); }
     }
 }

@@ -1,0 +1,2 @@
+package android.widget;
+public class CalendarView extends FrameLayout { public CalendarView(android.content.Context c) { super(c); } public CalendarView(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public CalendarView(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public CalendarView(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); }  }

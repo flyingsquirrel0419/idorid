@@ -17,6 +17,7 @@ public final class Log {
     public static int w(String t, Throwable tr) { return println(WARN, t, withTr("", tr)); }
     public static int e(String t, String m) { return println(ERROR, t, m); }
     public static int e(String t, String m, Throwable tr) { return println(ERROR, t, withTr(m, tr)); }
+    public static int wtf(String t, Throwable tr) { return println(ASSERT,t,withTr("",tr)); }
     public static int wtf(String t, String m) { return println(ASSERT, t, m); }
     public static int wtf(String t, String m, Throwable tr) { return println(ASSERT, t, withTr(m, tr)); }
     public static boolean isLoggable(String t, int level) { return true; }

@@ -6,7 +6,7 @@ import android.view.Json;
 import android.view.View;
 
 /** Rendered by the host as a menu button; item choice comes back as a click on a row. */
-public class Spinner extends AdapterView<SpinnerAdapter> {
+public class Spinner extends AbsSpinner {
     private SpinnerAdapter adapter;
     private int selected = -1;
     public Spinner(Context c) { super(c); }
@@ -63,4 +63,5 @@ public class Spinner extends AdapterView<SpinnerAdapter> {
     public Spinner(Context c,AttributeSet a,int s,int r) { super(c,a,s,r); }
     public void setDropDownHorizontalOffset(int v) { horizontalOffset=v; } public int getDropDownHorizontalOffset() { return horizontalOffset; } public void setDropDownVerticalOffset(int v) { verticalOffset=v; } public int getDropDownVerticalOffset() { return verticalOffset; } public void setDropDownWidth(int v) { dropDownWidth=v; } public int getDropDownWidth() { return dropDownWidth; } public void setPopupBackgroundDrawable(android.graphics.drawable.Drawable d) { popupBackground=d; } public android.graphics.drawable.Drawable getPopupBackground() { return popupBackground; } public CharSequence getPrompt() { return prompt; }
 
+ protected android.os.Parcelable onSaveInstanceState() { return null; } protected void onRestoreInstanceState(android.os.Parcelable state) {}
 }

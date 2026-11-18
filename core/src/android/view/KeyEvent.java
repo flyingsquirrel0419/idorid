@@ -1,8 +1,18 @@
 package android.view;
 public class KeyEvent {
-    public static final int KEYCODE_BACK = 4, KEYCODE_ENTER = 66, KEYCODE_DEL = 67, ACTION_DOWN = 0, ACTION_UP = 1;
-    private final int action, code;
-    public KeyEvent(int action, int code) { this.action = action; this.code = code; }
-    public int getAction() { return action; }
-    public int getKeyCode() { return code; }
+    public interface Callback { boolean onKeyDown(int code,KeyEvent event); boolean onKeyLongPress(int code,KeyEvent event); boolean onKeyUp(int code,KeyEvent event); boolean onKeyMultiple(int code,int count,KeyEvent event); }
+    public static class DispatcherState { private int tracking=-1; public void reset(){tracking=-1;} public void reset(Object target){tracking=-1;} public void startTracking(KeyEvent event,Object target){tracking=event.code;} public boolean isTracking(KeyEvent event){return tracking==event.code;} public void performedLongPress(KeyEvent event){} public void handleUpEvent(KeyEvent event){if(isTracking(event))event.flags|=FLAG_TRACKING;tracking=-1;} }
+    public static final int KEYCODE_UNKNOWN=0,KEYCODE_BACK=4,KEYCODE_ENTER=66,KEYCODE_DEL=67,KEYCODE_SHIFT_LEFT=59,KEYCODE_SHIFT_RIGHT=60,KEYCODE_ALT_LEFT=57,KEYCODE_ALT_RIGHT=58,KEYCODE_CTRL_LEFT=113,KEYCODE_CTRL_RIGHT=114,KEYCODE_META_LEFT=117,KEYCODE_META_RIGHT=118;
+    public static final int ACTION_DOWN=0,ACTION_UP=1,ACTION_MULTIPLE=2,META_SHIFT_ON=1,META_ALT_ON=2,META_SYM_ON=4,META_FUNCTION_ON=8,META_ALT_LEFT_ON=16,META_ALT_RIGHT_ON=32,META_SHIFT_LEFT_ON=64,META_SHIFT_RIGHT_ON=128,META_CTRL_ON=4096,META_CTRL_LEFT_ON=8192,META_CTRL_RIGHT_ON=16384,META_META_ON=65536,META_META_LEFT_ON=131072,META_META_RIGHT_ON=262144,FLAG_CANCELED=32,FLAG_TRACKING=512;
+    private final int action,code,repeat,meta,device; private int flags;
+    public KeyEvent(int action,int code) { this(0,0,action,code,0,0,0,0,0); }
+    public KeyEvent(long down,long time,int action,int code,int repeat) { this(down,time,action,code,repeat,0,0,0,0); }
+    public KeyEvent(long down,long time,int action,int code,int repeat,int meta,int device,int scan,int flags) { this.action=action;this.code=code;this.repeat=repeat;this.meta=meta;this.device=device;this.flags=flags; }
+    public int getAction(){return action;} public int getKeyCode(){return code;} public int getRepeatCount(){return repeat;} public int getMetaState(){return meta;} public int getModifiers(){return normalizeMetaState(meta)&0x770ff;} public int getDeviceId(){return device;} public int getFlags(){return flags;}
+    public boolean hasModifiers(int m){return getModifiers()==normalizeMetaState(m);} public boolean hasNoModifiers(){return metaStateHasNoModifiers(meta);} public static boolean metaStateHasNoModifiers(int m){return (normalizeMetaState(m)&0x770ff)==0;}
+    public static int normalizeMetaState(int m){if((m&(META_SHIFT_LEFT_ON|META_SHIFT_RIGHT_ON))!=0)m|=META_SHIFT_ON;if((m&(META_ALT_LEFT_ON|META_ALT_RIGHT_ON))!=0)m|=META_ALT_ON;if((m&(META_CTRL_LEFT_ON|META_CTRL_RIGHT_ON))!=0)m|=META_CTRL_ON;if((m&(META_META_LEFT_ON|META_META_RIGHT_ON))!=0)m|=META_META_ON;return m;}
+    public boolean isAltPressed(){return (getModifiers()&META_ALT_ON)!=0;} public boolean isShiftPressed(){return (getModifiers()&META_SHIFT_ON)!=0;} public boolean isCtrlPressed(){return (getModifiers()&META_CTRL_ON)!=0;} public boolean isCanceled(){return (flags&FLAG_CANCELED)!=0;} public boolean isTracking(){return (flags&FLAG_TRACKING)!=0;} public boolean isSystem(){return code==KEYCODE_BACK;}
+    public static boolean isModifierKey(int key){return key==KEYCODE_SHIFT_LEFT||key==KEYCODE_SHIFT_RIGHT||key==KEYCODE_ALT_LEFT||key==KEYCODE_ALT_RIGHT||key==KEYCODE_CTRL_LEFT||key==KEYCODE_CTRL_RIGHT||key==KEYCODE_META_LEFT||key==KEYCODE_META_RIGHT;}
+    public boolean getKeyData(KeyCharacterMap.KeyData data){return KeyCharacterMap.load(device).getKeyData(code,data);}
+    public boolean dispatch(Callback receiver,DispatcherState state,Object target){if(action==ACTION_DOWN)return receiver.onKeyDown(code,this);if(action==ACTION_UP){if(state!=null)state.handleUpEvent(this);return receiver.onKeyUp(code,this);}return action==ACTION_MULTIPLE&&receiver.onKeyMultiple(code,repeat,this);}
 }

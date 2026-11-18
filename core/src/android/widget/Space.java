@@ -6,4 +6,5 @@ public final class Space extends View {
     public Space(Context c) { super(c); }
     public Space(Context c, AttributeSet a) { super(c, a); }
     public Space(Context c, AttributeSet a, int s) { super(c, a, s); }
+    public Space(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

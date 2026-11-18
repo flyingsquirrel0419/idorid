@@ -6,7 +6,14 @@ public abstract class Animator implements Cloneable {
     protected ArrayList<AnimatorListener> listeners = new ArrayList<AnimatorListener>();
     protected long duration = 300, startDelay;
     protected TimeInterpolator interpolator;
-    protected boolean running, started;
+    protected boolean running, started, paused;
+    private ArrayList<AnimatorPauseListener> pauseListeners = new ArrayList<AnimatorPauseListener>();
+    public void setTarget(Object target) {}
+    public void addPauseListener(AnimatorPauseListener listener) { if(listener!=null) pauseListeners.add(listener); }
+    public void removePauseListener(AnimatorPauseListener listener) { pauseListeners.remove(listener); }
+    public void pause() { if(started && !paused) { paused=true; for(AnimatorPauseListener l:new ArrayList<AnimatorPauseListener>(pauseListeners)) l.onAnimationPause(this); } }
+    public void resume() { if(paused) { paused=false; for(AnimatorPauseListener l:new ArrayList<AnimatorPauseListener>(pauseListeners)) l.onAnimationResume(this); } }
+    public boolean isPaused() { return paused; }
     public abstract void start();
     public abstract void end();
     public abstract void cancel();

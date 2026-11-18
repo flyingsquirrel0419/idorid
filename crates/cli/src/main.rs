@@ -274,6 +274,14 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
                     p.next().unwrap_or("").parse().unwrap_or(0.0),
                 )
             }
+            "tap" => app.tap(
+                a1.parse().unwrap_or(0.0),
+                rest.split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .parse()
+                    .unwrap_or(0.0),
+            ),
             "click" => app.click(a1.parse().unwrap_or(0)),
             "long" => app.long_click(a1.parse().unwrap_or(0)),
             "type" => app.set_text(a1.parse().unwrap_or(0), rest),

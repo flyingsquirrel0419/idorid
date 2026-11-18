@@ -1,0 +1,3 @@
+package android.widget;
+public class HeaderViewListAdapter extends BaseAdapter { private final ListAdapter adapter; public HeaderViewListAdapter(java.util.ArrayList headers,java.util.ArrayList footers,ListAdapter adapter) { this.adapter=adapter; } public ListAdapter getWrappedAdapter() { return adapter; } public int getCount() { return adapter==null?0:adapter.getCount(); } public Object getItem(int i) { return adapter.getItem(i); } public long getItemId(int i) { return adapter.getItemId(i); } public android.view.View getView(int i,android.view.View v,android.view.ViewGroup parent) { return adapter.getView(i,v,parent); }  public int getHeadersCount() { return 0; }
+}

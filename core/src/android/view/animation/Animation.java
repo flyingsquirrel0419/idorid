@@ -13,5 +13,6 @@ public class Animation {
     public void start() { started=true; ended=false; if (listener!=null) listener.onAnimationStart(this); new Handler().post(new Runnable() { public void run() { finish(); } }); }
     public void startNow() { start(); } public void cancel() { finish(); } public void reset() { started=ended=false; }
     private void finish() { if (!ended) { ended=true; if (listener!=null) listener.onAnimationEnd(this); } }
+    public boolean getTransformation(long currentTime,Transformation out,float scale) { return getTransformation(currentTime,out); }
     public boolean getTransformation(long currentTime,Transformation out) { if (!started) start(); return !ended; }
 }

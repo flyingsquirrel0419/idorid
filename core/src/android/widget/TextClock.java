@@ -1,0 +1,2 @@
+package android.widget;
+public class TextClock extends TextView { public TextClock(android.content.Context c) { super(c); } public TextClock(android.content.Context c,android.util.AttributeSet a) { super(c,a); } public TextClock(android.content.Context c,android.util.AttributeSet a,int s) { super(c,a,s); } public TextClock(android.content.Context c,android.util.AttributeSet a,int s,int r) { super(c,a,s,r); } public void setFormat12Hour(CharSequence f) {} public void setFormat24Hour(CharSequence f) {} public void setTimeZone(String zone) {} }

@@ -7,4 +7,5 @@ public class RadioButton extends CompoundButton {
     public RadioButton(Context c, AttributeSet a, int s) { super(c, a, s); }
     public void toggle() { if (!isChecked()) super.toggle(); }
     protected String idoridType() { return "RadioButton"; }
+    public RadioButton(Context c, AttributeSet a, int s, int r) { this(c,a,s); }
 }

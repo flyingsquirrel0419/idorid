@@ -124,6 +124,20 @@ public final class ActivityThread {
     private static long touchDown;
     public static String touch(int uid,int action,float x,float y) { try { View v=find(uid); if(v!=null) { long now=android.os.SystemClock.uptimeMillis(); if(action==0) touchDown=now; v.dispatchTouchEvent(android.view.MotionEvent.obtain(touchDown,now,action,x,y,0)); } } catch(Throwable t) { fail(t); } return settle(); }
 
+    /** Touch in window coordinates, dispatched through the view tree like Android. */
+    public static String touchWindow(int action, float x, float y) {
+        try {
+            Activity t = top();
+            if (t != null) {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (action == 0) touchDown = now;
+                android.view.MotionEvent e = android.view.MotionEvent.obtain(touchDown, now, action, x, y, 0);
+                t.mContent.dispatchTouchEvent(e);
+            }
+        } catch (Throwable e) { fail(e); }
+        return settle();
+    }
+
     public static String longClick(int uid) {
         try { View v = find(uid); if (v != null) v.performLongClick(); } catch (Throwable t) { fail(t); }
         return settle();
