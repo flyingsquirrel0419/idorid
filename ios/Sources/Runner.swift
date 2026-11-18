@@ -6,6 +6,7 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private let worker = VMWorker()
     private let banner = UILabel()
     private let content = UIView()
+    private var windowTouch: WindowTouch?
     private var nodes: [String: NodeView] = [:]
     private var usedNodes = Set<String>()
     private var lastWindowSize: CGSize?
@@ -14,7 +15,8 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private var previousDelegate: UINavigationControllerDelegate?
     private var tickTimer: Timer?
     private var tickInFlight = false
-    private var moveInFlight = false
+    private var touchInFlight = false
+    private var touchQueue: [(action: Int32, point: CGPoint, longID: Int32?)] = []
     private var activeTouches = 0
     private var presentedDialog: String?
     private var dialogHost: UIViewController?
@@ -36,6 +38,10 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false
         banner.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(content)
+        let touch = WindowTouch { [weak self] action, point in self?.forwardTouch(action, point) }
+        touch.isEnabled = false
+        content.addGestureRecognizer(touch)
+        windowTouch = touch
         view.addSubview(banner)
         NSLayoutConstraint.activate([content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), content.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor), content.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor), content.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor), banner.topAnchor.constraint(equalTo: content.topAnchor), banner.leadingAnchor.constraint(equalTo: content.leadingAnchor), banner.trailingAnchor.constraint(equalTo: content.trailingAnchor)])
         banner.textColor = .white
@@ -56,6 +62,7 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             guard let self = self, !self.closing else { return }
             if let error = error { self.showError(error); return }
             self.opened = true
+            self.windowTouch?.isEnabled = true
             let data = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("data", isDirectory: true).path
             self.send { vm in
                 if let r = data.withCString({ idorid_vm_set_data_dir(vm, $0) }) { idorid_string_free(r) }
@@ -140,19 +147,42 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         tickTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
-    private func forwardTouch(_ id: Int32, _ action: Int32, _ point: CGPoint) {
+    private func forwardTouch(_ action: Int32, _ point: CGPoint) {
+        guard opened, !closing else { return }
         guard point.x.isFinite, point.y.isFinite else { return }
         if action == 0 { activeTouches += 1 }
-        if action == 2 {
-            guard !moveInFlight else { return }
-            moveInFlight = true
+        if action == 2, touchQueue.last?.action == 2 {
+            touchQueue[touchQueue.count - 1] = (action, point, nil)
+        } else {
+            touchQueue.append((action, point, nil))
         }
-        let x = Float(point.x), y = Float(point.y)
+        deliverNextTouch()
+    }
+    private func forwardLongClick(_ id: Int32) {
+        guard opened, !closing else { return }
+        windowTouch?.cancelCurrentTouch()
+        touchQueue.append((4, .zero, id))
+        deliverNextTouch()
+    }
+    private func deliverNextTouch() {
+        guard !touchInFlight, !touchQueue.isEmpty, !closing else { return }
+        let event = touchQueue.removeFirst()
+        touchInFlight = true
+        let x = Float(event.point.x), y = Float(event.point.y)
         send(completion: { [weak self] in
             guard let self = self else { return }
-            if action == 2 { self.moveInFlight = false }
-            if action == 1 || action == 3 { self.activeTouches = max(0, self.activeTouches - 1) }
-        }) { idorid_vm_touch($0, id, action, x, y) }
+            self.touchInFlight = false
+            if event.action == 1 || event.action == 3 { self.activeTouches = max(0, self.activeTouches - 1) }
+            self.deliverNextTouch()
+        }) { vm in
+            if let id = event.longID { return idorid_vm_long_click(vm, id) }
+            return idorid_vm_touch_window(vm, event.action, x, y)
+        }
+    }
+    private func reportScroll(_ id: Int32, _ offset: CGPoint) {
+        let x = offset.x.rounded(), y = offset.y.rounded()
+        guard x.isFinite, y.isFinite, x >= CGFloat(Int32.min), x <= CGFloat(Int32.max), y >= CGFloat(Int32.min), y <= CGFloat(Int32.max), opened, !closing else { return }
+        worker.perform({ idorid_vm_scroll($0, id, Int32(x), Int32(y)) }) { _ in }
     }
     private func showToasts(_ toasts: [String]) {
         guard let text = toasts.last else { return }
@@ -226,7 +256,7 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             if child.superview !== content { content.addSubview(child) }
         }
         if let dialog = object["dialog"] as? [String: Any], let root = dialog["content"] as? [String: Any], let host = dialogHost {
-            let child = build(root, parentKey: "dialog")
+            let child = build(root, parentKey: "dialog", inDialog: true)
             if child.superview !== host.view { host.view.addSubview(child) }
             host.preferredContentSize = child.frame.size
             host.view.frame = CGRect(origin: .zero, size: child.frame.size)
@@ -248,32 +278,44 @@ final class ClosureTap: UITapGestureRecognizer {
 }
 
 /// Tracks one finger and leaves child controls free to handle their own gestures.
-final class CanvasTouch: UIGestureRecognizer {
+final class WindowTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
     private let forward: (Int32, CGPoint) -> Void
     private var tracked: UITouch?
+    private var forwarded = false
     init(_ forward: @escaping (Int32, CGPoint) -> Void) {
         self.forward = forward
         super.init(target: nil, action: nil)
-        cancelsTouchesInView = true
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
     }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool { false }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         guard tracked == nil, let touch = touches.first, let view = view else { return }
-        tracked = touch; state = .began; forward(0, touch.location(in: view))
+        tracked = touch; forwarded = true; state = .began; forward(0, touch.location(in: view))
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = tracked, touches.contains(touch), let view = view else { return }
-        state = .changed; forward(2, touch.location(in: view))
+        state = .changed; if forwarded { forward(2, touch.location(in: view)) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = tracked, touches.contains(touch), let view = view else { return }
-        forward(1, touch.location(in: view)); tracked = nil; state = .ended
+        if forwarded { forward(1, touch.location(in: view)) }; forwarded = false; tracked = nil; state = .ended
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = tracked, touches.contains(touch), let view = view else { return }
-        forward(3, touch.location(in: view)); tracked = nil; state = .cancelled
+        if forwarded { forward(3, touch.location(in: view)) }; forwarded = false; tracked = nil; state = .cancelled
+    }
+    func cancelCurrentTouch() {
+        guard forwarded, let touch = tracked, let view = view else { return }
+        forwarded = false
+        forward(3, touch.location(in: view))
     }
     override func reset() {
-        if let touch = tracked, let view = view { forward(3, touch.location(in: view)) }
+        cancelCurrentTouch()
         tracked = nil
         super.reset()
     }
@@ -316,13 +358,14 @@ private func nodeColor(_ value: Any?) -> UIColor? {
     return UIColor(red: CGFloat((n >> 16) & 255) / 255, green: CGFloat((n >> 8) & 255) / 255, blue: CGFloat(n & 255) / 255, alpha: CGFloat((n >> 24) & 255) / 255)
 }
 
-private final class NodeView: UIView, UITextViewDelegate {
+private final class NodeView: UIView, UITextViewDelegate, UIScrollViewDelegate {
     let kind: String
     let id: Int32
-    var click: (() -> Void)?
     var textChanged: ((String) -> Void)?
     var editorAction: (() -> Void)?
     var progressChanged: ((Int32) -> Void)?
+    var scrollChanged: ((CGPoint) -> Void)?
+    var scrollBegan: (() -> Void)?
     var canvas: CanvasView?
     var widget: UIView?
     var label: UILabel?
@@ -333,17 +376,26 @@ private final class NodeView: UIView, UITextViewDelegate {
     var gestureMode = ""
     var placeholder: UILabel?
 
+    /** True when canvas ops contain an actual drawing (not just save/restore/transforms). */
+    static func hasVisibleDrawing(_ ops: Any?) -> Bool {
+        guard let list = ops as? [Any] else { return false }
+        for op in list {
+            if let a = op as? [Any], let name = a.first as? String, !["save", "restore", "translate", "scale", "rotate", "concat", "clip"].contains(name) { return true }
+        }
+        return false
+    }
+
     init(kind: String, id: Int32) {
         self.kind = kind; self.id = id
         super.init(frame: .zero)
         switch kind {
         case "ScrollView", "HorizontalScrollView":
-            let v = UIScrollView(); addSubview(v); scroll = v
+            let v = UIScrollView(); v.delegate = self; addSubview(v); scroll = v
         case "TextView":
             let v = UILabel(); v.numberOfLines = 0; v.lineBreakMode = .byWordWrapping; addSubview(v); label = v
         case "Button", "ImageButton", "CheckBox", "RadioButton", "Spinner":
             let v = UIButton(type: .system); addSubview(v); widget = v
-            if kind != "Spinner" { v.addTarget(self, action: #selector(pressed), for: .touchUpInside) }
+            v.adjustsImageWhenHighlighted = false
         case "EditText":
             let v = UITextField(); v.borderStyle = .none; addSubview(v); widget = v
             v.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
@@ -352,7 +404,7 @@ private final class NodeView: UIView, UITextViewDelegate {
             let v = UITextView(); v.delegate = self; v.backgroundColor = .clear; v.textContainerInset = .zero; v.textContainer.lineFragmentPadding = 0; addSubview(v); widget = v
             let hint = UILabel(); hint.textColor = .placeholderText; hint.numberOfLines = 0; hint.isUserInteractionEnabled = false; addSubview(hint); placeholder = hint
         case "Switch":
-            let v = UISwitch(); v.addTarget(self, action: #selector(pressed), for: .valueChanged); addSubview(v); widget = v
+            let v = UISwitch(); addSubview(v); widget = v
             let l = UILabel(); l.numberOfLines = 0; l.lineBreakMode = .byWordWrapping; addSubview(l); label = l
         case "ImageView": let v = UIImageView(); addSubview(v); widget = v
         case "ProgressBar": let v = UIProgressView(progressViewStyle: .default); addSubview(v); widget = v
@@ -363,7 +415,8 @@ private final class NodeView: UIView, UITextViewDelegate {
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
-    @objc private func pressed() { click?() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollChanged?(scrollView.contentOffset) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollBegan?() }
     @objc private func fieldChanged() { textChanged?((widget as? UITextField)?.text ?? "") }
     @objc private func fieldReturn() { editorAction?() }
     @objc private func sliderChanged() { if let v = widget as? UISlider { progressChanged?(Int32(v.value)) } }
@@ -390,12 +443,14 @@ private final class NodeView: UIView, UITextViewDelegate {
 }
 
 extension RunnerController {
-    private func build(_ node: [String: Any], parentKey: String) -> NodeView {
+    private func build(_ node: [String: Any], parentKey: String, inDialog: Bool = false) -> NodeView {
         let id = (node["id"] as? NSNumber)?.int32Value ?? 0
         let key = id == 0 ? "\(parentKey)/0" : "\(id)"
         let type = node["type"] as? String ?? "View"
         let input = (node["inputType"] as? NSNumber)?.intValue ?? 1
-        let kind = type == "EditText" && (node["maxLines"] as? NSNumber)?.intValue != 1 && input & 0x20000 != 0 ? "EditTextMultiline" : (type == "ProgressBar" && (node["indeterminate"] as? Bool ?? true) ? "ProgressBarIndeterminate" : type)
+        var kind = type == "EditText" && (node["maxLines"] as? NSNumber)?.intValue != 1 && input & 0x20000 != 0 ? "EditTextMultiline" : (type == "ProgressBar" && (node["indeterminate"] as? Bool ?? true) ? "ProgressBarIndeterminate" : type)
+        // A checkable Button subclass (SwitchCompat/MaterialSwitch) that draws nothing visible: show a native switch.
+        if type == "Button" && node["checked"] != nil && !NodeView.hasVisibleDrawing(node["draw"]) { kind = "Switch" }
         let view: NodeView
         if let old = nodes[key], old.kind == kind { view = old }
         else { nodes[key]?.removeFromSuperview(); view = NodeView(kind: kind, id: id); nodes[key] = view }
@@ -409,9 +464,11 @@ extension RunnerController {
         view.alpha = (node["alpha"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 1
         view.isHidden = (node["visible"] as? Bool) == false || (node["visible"] as? String) == "invisible"
         let enabled = node["enabled"] as? Bool ?? true
-        view.isUserInteractionEnabled = enabled
+        view.isUserInteractionEnabled = true
         (view.widget as? UIControl)?.isEnabled = enabled
-        view.click = { [weak self] in self?.send { idorid_vm_click($0, id) } }
+        view.widget?.isUserInteractionEnabled = enabled && ["EditText", "EditTextMultiline", "Spinner", "SeekBar"].contains(kind)
+        view.scrollChanged = { [weak self] offset in self?.reportScroll(id, offset) }
+        view.scrollBegan = { [weak self] in self?.windowTouch?.cancelCurrentTouch() }
         view.editorAction = { [weak self] in self?.send { idorid_vm_editor_action($0, id) } }
         view.textChanged = { [weak self] text in self?.send { vm in text.withCString { idorid_vm_set_text(vm, id, $0) } } }
         view.progressChanged = { [weak self] value in self?.send { idorid_vm_set_progress($0, id, value) } }
@@ -429,8 +486,17 @@ extension RunnerController {
             switch type {
             case "CheckBox", "RadioButton":
                 let checked = node["checked"] as? Bool ?? false
-                let symbol = type == "CheckBox" ? (checked ? "checkmark.square.fill" : "square") : (checked ? "largecircle.fill.circle" : "circle")
-                button.setImage(UIImage(systemName: symbol), for: .normal); button.setTitle("  " + (node["text"] as? String ?? ""), for: .normal); button.contentHorizontalAlignment = .leading
+                if node["customButton"] as? Bool == true && NodeView.hasVisibleDrawing(node["draw"]) {
+                    // The app draws its own check mark / chip: only place the text after it.
+                    let inset = CGFloat((node["textInset"] as? NSNumber)?.doubleValue ?? 0)
+                    button.setImage(nil, for: .normal); button.setTitle(node["text"] as? String, for: .normal)
+                    button.contentHorizontalAlignment = inset > 0 ? .leading : .center
+                    button.contentEdgeInsets = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: 0)
+                } else {
+                    let symbol = type == "CheckBox" ? (checked ? "checkmark.square.fill" : "square") : (checked ? "largecircle.fill.circle" : "circle")
+                    button.setImage(UIImage(systemName: symbol), for: .normal); button.setTitle("  " + (node["text"] as? String ?? ""), for: .normal); button.contentHorizontalAlignment = .leading
+                    button.contentEdgeInsets = .zero
+                }
             case "ImageButton": button.setImage(UIImage(systemName: "photo"), for: .normal)
             case "Spinner":
                 let items = node["items"] as? [[String: Any]] ?? []; let selected = (node["selected"] as? NSNumber)?.intValue ?? -1
@@ -486,20 +552,18 @@ extension RunnerController {
             }
             canvas.updateOperations(ops)
         } else { view.canvas?.removeFromSuperview(); view.canvas = nil }
-        let touch = node["touch"] as? Bool == true
-        let tap = node["clickable"] as? Bool == true && !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar", "Spinner"].contains(type)
-        let long = (node["longClickable"] as? Bool == true) || (node["clickable"] as? Bool == true)
-        let gestureMode = "\(touch)-\(tap)-\(long)"
+        let tap = inDialog && enabled && (node["clickable"] as? Bool == true) && !["EditText", "SeekBar", "Spinner"].contains(type)
+        let long = enabled && node["longClickable"] as? Bool == true
+        let gestureMode = "\(tap)-\(long)"
         if gestureMode != view.gestureMode {
-            view.gestureRecognizers?.filter { $0 is CanvasTouch || $0 is ClosureTap || $0 is NodeLongPress }.forEach { view.removeGestureRecognizer($0) }
-            if touch { view.addGestureRecognizer(CanvasTouch { [weak self] action, point in self?.forwardTouch(id, action, point) }) }
-            else if tap { view.addGestureRecognizer(ClosureTap { [weak self] in self?.send { idorid_vm_click($0, id) } }) }
-            if long { view.addGestureRecognizer(NodeLongPress { [weak self] in self?.send { idorid_vm_long_click($0, id) } }) }
+            view.gestureRecognizers?.filter { $0 is ClosureTap || $0 is NodeLongPress }.forEach { view.removeGestureRecognizer($0) }
+            if tap { view.addGestureRecognizer(ClosureTap { [weak self] in self?.send { idorid_vm_click($0, id) } }) }
+            if long { view.addGestureRecognizer(NodeLongPress { [weak self] in self?.forwardLongClick(id) }) }
             view.gestureMode = gestureMode
         }
         let parent: UIView = (view.scroll as UIView?) ?? view
         let children = node["children"] as? [[String: Any]] ?? []
-        for child in children { let sub = build(child, parentKey: key); if sub.superview !== parent { parent.addSubview(sub) }; parent.bringSubviewToFront(sub) }
+        for child in children { let sub = build(child, parentKey: key, inDialog: inDialog); if sub.superview !== parent { parent.addSubview(sub) }; parent.bringSubviewToFront(sub) }
         if let scroll = view.scroll {
             let child = children.first.map(nodeFrame) ?? .zero
             scroll.contentSize = CGSize(width: max(0, child.maxX + view.padding.right), height: max(0, child.maxY + view.padding.bottom))
