@@ -24,7 +24,7 @@ public class Resources {
         private int key;
         public void applyStyle(int resId, boolean force) {
             if (resId == 0) return;
-            String[] items = nativeStyle(resId);
+            String[] items = styleItems(resId);
             if (items == null) return;
             for (int i = 0; i + 1 < items.length; i += 2) {
                 Integer attr = Integer.valueOf(Integer.parseInt(items[i]));
@@ -128,7 +128,7 @@ public class Resources {
         Map<Integer, String> m = styleCache.get(k);
         if (m == null) {
             m = new HashMap<Integer, String>();
-            String[] items = resId == 0 ? null : nativeStyle(resId);
+            String[] items = resId == 0 ? null : styleItems(resId);
             if (items != null) for (int i = 0; i + 1 < items.length; i += 2) m.put(Integer.valueOf(Integer.parseInt(items[i])), items[i + 1]);
             styleCache.put(k, m);
         }
@@ -138,8 +138,27 @@ public class Resources {
     private static NotFoundException nf(int id) { return new NotFoundException("Resource ID #0x" + Integer.toHexString(id)); }
 
     /** idorid: encoded value of a resource, following references to a primitive or file. */
+    private static final String MISSING = new String("\u0000missing");
+    private final HashMap<Integer, String> valueCache = new HashMap<Integer, String>();
+    private final HashMap<Integer, String[]> styleItemsCache = new HashMap<Integer, String[]>();
+    /** Style items, cached (resource tables are immutable at run time). */
+    String[] styleItems(int resId) {
+        Integer k = Integer.valueOf(resId);
+        if (styleItemsCache.containsKey(k)) return styleItemsCache.get(k);
+        String[] items = nativeStyle(resId);
+        styleItemsCache.put(k, items);
+        return items;
+    }
     public String idoridValue(int id) {
         if (id == 0) return null;
+        Integer k = Integer.valueOf(id);
+        String c = valueCache.get(k);
+        if (c != null) return c == MISSING ? null : c;
+        String v = idoridValueUncached(id);
+        valueCache.put(k, v == null ? MISSING : v);
+        return v;
+    }
+    private String idoridValueUncached(int id) {
         String v = nativeValue(id);
         if (v == null && (id >>> 24) == 1) {
             // framework files (drawables, layouts, anims) are not bundled: expose them as placeholders

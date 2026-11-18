@@ -30,7 +30,7 @@ use idorid_vm::{ResourceProvider, Throw, Vm};
 /// Resources backed by the APK.
 pub struct ApkResources {
     apk: Rc<Apk>,
-    res: Option<Resources>,
+    res: Option<Rc<Resources>>,
     package: String,
 }
 
@@ -333,7 +333,7 @@ impl idorid_vm::Storage for DirStorage {
 pub struct App {
     pub vm: Vm,
     apk: Rc<Apk>,
-    res_index: Option<Resources>,
+    res_index: Option<Rc<Resources>>,
     pub manifest: Manifest,
     pub label: String,
     log: Rc<RefCell<String>>,
@@ -346,8 +346,8 @@ impl App {
         let t0 = std::time::Instant::now();
         let apk = Rc::new(Apk::open(bytes).map_err(|e| format!("bad apk: {e:?}"))?);
         let manifest = apk.manifest().map_err(|e| format!("bad manifest: {e:?}"))?;
-        let res = apk.resources().ok();
-        let res_index = apk.resources().ok();
+        let res = apk.resources().ok().map(Rc::new);
+        let res_index = res.clone();
         let provider = ApkResources {
             apk: apk.clone(),
             res,

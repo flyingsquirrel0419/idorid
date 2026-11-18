@@ -31,36 +31,45 @@ impl From<std::io::Error> for ApkError {
     }
 }
 
+/// An APK opened lazily: entries are decompressed on demand.
 pub struct Apk {
-    entries: Vec<(String, Vec<u8>)>,
+    zip: std::cell::RefCell<ZipArchive<Cursor<Vec<u8>>>>,
+    names: Vec<String>,
+    index: std::collections::HashMap<String, usize>,
 }
 impl Apk {
     pub fn open(bytes: Vec<u8>) -> Result<Self, ApkError> {
-        let mut zip = ZipArchive::new(Cursor::new(bytes))?;
-        let mut entries = Vec::new();
-        for i in 0..zip.len() {
-            let mut file = zip.by_index(i)?;
-            let name = file.name().to_owned();
-            let mut data = Vec::new();
-            file.read_to_end(&mut data)?;
-            entries.push((name, data));
-        }
-        Ok(Self { entries })
+        let zip = ZipArchive::new(Cursor::new(bytes))?;
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.name_for_index(i).unwrap_or_default().to_owned())
+            .collect();
+        let index = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i))
+            .collect();
+        Ok(Self {
+            zip: std::cell::RefCell::new(zip),
+            names,
+            index,
+        })
     }
     pub fn entries(&self) -> Vec<&str> {
-        self.entries.iter().map(|(n, _)| n.as_str()).collect()
+        self.names.iter().map(|n| n.as_str()).collect()
     }
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
-        self.entries
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, b)| b.clone())
+        let i = *self.index.get(name)?;
+        let mut zip = self.zip.borrow_mut();
+        let mut file = zip.by_index(i).ok()?;
+        let mut data = Vec::with_capacity(file.size() as usize);
+        file.read_to_end(&mut data).ok()?;
+        Some(data)
     }
     pub fn dex_files(&self) -> Vec<Vec<u8>> {
-        let mut dex: Vec<_> = self
-            .entries
+        let mut dex: Vec<(u32, &str)> = self
+            .names
             .iter()
-            .filter_map(|(n, b)| {
+            .filter_map(|n| {
                 let suffix = n.strip_prefix("classes")?.strip_suffix(".dex")?;
                 let index = if suffix.is_empty() {
                     1
@@ -71,11 +80,11 @@ impl Apk {
                     }
                     i
                 };
-                Some((index, b))
+                Some((index, n.as_str()))
             })
             .collect();
         dex.sort_by_key(|(i, _)| *i);
-        dex.into_iter().map(|(_, b)| b.clone()).collect()
+        dex.into_iter().filter_map(|(_, n)| self.read(n)).collect()
     }
     pub fn manifest(&self) -> Result<Manifest, ApkError> {
         Manifest::parse(
