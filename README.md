@@ -112,9 +112,10 @@ basics, cooperative `Thread`s, `Handler.postDelayed` timers.
 
 **AndroidX:** `AppCompatActivity`, `AppCompatDelegate` (theme checks, sub-decor,
 view inflation factory), Material 3 themes and `MaterialButton` (shape
-backgrounds drawn through `Canvas`), `ConstraintLayout`. Bigger AndroidX
-surfaces (RecyclerView, Toolbar menus, TextInputLayout, CoordinatorLayout) are
-the current focus.
+backgrounds drawn through `Canvas`), `ConstraintLayout`, `RecyclerView`
+(scrolling and recycling through Android's own touch dispatch),
+`MaterialToolbar` with menus, `TextInputLayout`, `Chip`, `MaterialSwitch`,
+`MaterialCardView`, `CoordinatorLayout`, `Snackbar`.
 
 **Framework:** Android's measure/layout pass, themes and styles
 (`obtainStyledAttributes`, `TypedArray`, `?attr`, `textAppearance`,
@@ -153,7 +154,8 @@ translation into the IPA, or an ARM64 interpreter. Neither is a weekend project.
 
 The app ships with demos: Todo (views, dialogs, preferences), Paint (Canvas
 custom view, touch, animation), Calc (Kotlin), Hello AndroidX (the Android
-Studio template), Planets (AndroidX showcase, in progress).
+Studio template), Planets (AndroidX showcase: RecyclerView, MaterialToolbar,
+TextInputLayout, chips, switches, cards, a second activity).
 
 ## Build
 
@@ -196,7 +198,8 @@ for the examples.
 - [x] Canvas / custom views, touch dispatch, vector drawables
 - [x] Kotlin apps, `invoke-custom` lambdas, reflection
 - [x] Android measure/layout, themes/styles, AndroidX AppCompat + Material 3 + ConstraintLayout
-- [ ] RecyclerView, Toolbar/action bar menus, Fragments, CoordinatorLayout behaviors
+- [x] RecyclerView, MaterialToolbar menus, TextInputLayout, CoordinatorLayout
+- [ ] Fragments, Navigation, ViewPager2, Jetpack Compose
 - [ ] Faster interpreter: pre-decoded handlers, field-offset quickening, string fast paths
 - [ ] Green threads (the non-recursive interpreter is already built for it)
 - [ ] Networking (`HttpURLConnection`/OkHttp) over `URLSession`, files, SQLite
