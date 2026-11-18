@@ -27,6 +27,9 @@ char *idorid_vm_set_progress(IdoridVm *vm, int32_t view_id, int32_t progress);
 char *idorid_vm_tick(IdoridVm *vm);
 char *idorid_vm_take_log(IdoridVm *vm);
 char *idorid_vm_info(IdoridVm *vm);
+// PNG/WebP/JPEG bytes of a drawable resource (the UI JSON's "src"); NULL if none.
+uint8_t *idorid_vm_resource_bytes(IdoridVm *vm, int32_t id, size_t *len);
+void idorid_bytes_free(uint8_t *ptr, size_t len);
 void idorid_string_free(char *s);
 void idorid_vm_free(IdoridVm *vm);
 

@@ -212,6 +212,8 @@ impl idorid_vm::Storage for DirStorage {
 /// A loaded Android app.
 pub struct App {
     pub vm: Vm,
+    apk: Rc<Apk>,
+    res_index: Option<Resources>,
     pub manifest: Manifest,
     pub label: String,
     log: Rc<RefCell<String>>,
@@ -225,6 +227,7 @@ impl App {
         let apk = Rc::new(Apk::open(bytes).map_err(|e| format!("bad apk: {e:?}"))?);
         let manifest = apk.manifest().map_err(|e| format!("bad manifest: {e:?}"))?;
         let res = apk.resources().ok();
+        let res_index = apk.resources().ok();
         let provider = ApkResources {
             apk: apk.clone(),
             res,
@@ -266,6 +269,8 @@ impl App {
         }
         Ok(App {
             vm,
+            apk,
+            res_index,
             manifest,
             label,
             log,
@@ -349,6 +354,29 @@ impl App {
     pub fn ui(&mut self) -> String {
         self.call("ui()Ljava/lang/String;", &[])
     }
+    /// Raw bytes of a file resource (e.g. a PNG/WebP drawable), if it is a bitmap.
+    pub fn resource_bytes(&self, id: u32) -> Option<Vec<u8>> {
+        let mut id = id;
+        let res = self.res_index.as_ref()?;
+        for _ in 0..8 {
+            match res.get(id)? {
+                ResValue::Reference(next) => id = next,
+                _ => break,
+            }
+        }
+        let path = res.file_path(id)?;
+        let lower = path.to_ascii_lowercase();
+        if !(lower.ends_with(".png")
+            || lower.ends_with(".webp")
+            || lower.ends_with(".jpg")
+            || lower.ends_with(".jpeg")
+            || lower.ends_with(".gif"))
+        {
+            return None;
+        }
+        self.apk.read(&path)
+    }
+
     /// Persist app data under `<dir>/<package>/`.
     pub fn set_data_dir(&mut self, dir: &str) {
         let root = std::path::Path::new(dir).join(&self.manifest.package);
@@ -490,6 +518,43 @@ vm_fn!(idorid_vm_set_text(view_id: i32, utf8: *const c_char) => |app| {
     let text = if utf8.is_null() { String::new() } else { CStr::from_ptr(utf8).to_string_lossy().into_owned() };
     app.set_text(view_id, &text)
 });
+
+/// Bitmap bytes for a drawable resource id; NULL if absent or not a bitmap.
+/// Free with `idorid_bytes_free(ptr, len)`.
+///
+/// # Safety
+/// `vm` must come from `idorid_vm_new`; `len` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn idorid_vm_resource_bytes(
+    vm: *mut IdoridVm,
+    id: i32,
+    len: *mut usize,
+) -> *mut u8 {
+    let Some(IdoridVm(app)) = vm.as_mut() else {
+        return std::ptr::null_mut();
+    };
+    match catch_unwind(AssertUnwindSafe(|| app.resource_bytes(id as u32))) {
+        Ok(Some(bytes)) => {
+            let mut b = bytes.into_boxed_slice();
+            if !len.is_null() {
+                *len = b.len();
+            }
+            let p = b.as_mut_ptr();
+            std::mem::forget(b);
+            p
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// # Safety
+/// `ptr`/`len` must come from `idorid_vm_resource_bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn idorid_bytes_free(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)));
+    }
+}
 
 /// # Safety
 /// `s` must come from an idorid function (or be null).

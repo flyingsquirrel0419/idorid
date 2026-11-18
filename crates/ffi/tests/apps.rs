@@ -84,6 +84,11 @@ fn todo_app_full_flow() {
     let v = ui(&app.click(id(by_text(&v, "About"))));
     assert_eq!(v["title"], "About");
     by_text(&v, "Open tasks: 2\nAndroid API 34 on idorid");
+    let logo = by_type(&v, "ImageView");
+    let png = app
+        .resource_bytes(logo["src"].as_u64().unwrap() as u32)
+        .expect("logo bytes");
+    assert!(png.starts_with(b"\x89PNG"));
     let v = ui(&app.back());
     by_text(&v, "Todo (Android)");
     // delayed handler messages report when to tick next

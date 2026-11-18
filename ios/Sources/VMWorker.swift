@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // The state and every FFI call are confined to the same 16 MB stack thread.
 final class VMWorker {
@@ -78,6 +79,22 @@ final class VMWorker {
             let result = state.take(action(vm))
             state.drain()
             DispatchQueue.main.async { completion(result) }
+        }
+    }
+    /// Decoded drawable images, loaded on the VM thread and cached by resource id.
+    func images(_ ids: [Int32], completion: @escaping ([Int32: UIImage]) -> Void) {
+        submit { state in
+            var out: [Int32: UIImage] = [:]
+            if let vm = state.vm {
+                for id in ids {
+                    var len = 0
+                    guard let ptr = idorid_vm_resource_bytes(vm, id, &len) else { continue }
+                    let data = Data(bytes: ptr, count: len)
+                    idorid_bytes_free(ptr, len)
+                    if let image = UIImage(data: data, scale: 3) { out[id] = image }
+                }
+            }
+            DispatchQueue.main.async { completion(out) }
         }
     }
     func logs(_ completion: @escaping (String) -> Void) {

@@ -12,6 +12,10 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private var tickTimer: Timer?
     private var presentedDialog: String?
     private let toastLabel = UILabel()
+    private var imageCache: [Int32: UIImage] = [:]
+    private var missingImages = Set<Int32>()
+    private var pendingImages = Set<Int32>()
+    private var lastUI: [String: Any]?
 
     init(url: URL) { self.url = url; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -142,7 +146,18 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         if let pop = alert.popoverPresentationController { pop.sourceView = view; pop.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1) }
         present(alert, animated: true)
     }
+    private func requestImage(_ id: Int32) {
+        guard !pendingImages.contains(id) else { return }
+        pendingImages.insert(id)
+        worker.images([id]) { [weak self] images in
+            guard let self = self, !self.closing else { return }
+            self.pendingImages.remove(id)
+            if let image = images[id] { self.imageCache[id] = image } else { self.missingImages.insert(id) }
+            if images[id] != nil, let ui = self.lastUI { self.render(ui) }
+        }
+    }
     private func render(_ object: [String: Any]) {
+        lastUI = object
         if object["finished"] as? Bool == true { closing = true; tickTimer?.invalidate(); worker.close(); navigationController?.popViewController(animated: true); return }
         scheduleTick(object["next"])
         showToasts(object["toasts"] as? [String] ?? [])
@@ -356,7 +371,14 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             }
             result = field
         case "ImageView":
-            let placeholder = UIView(); placeholder.backgroundColor = .systemGray4; result = placeholder
+            let imageView = UIImageView()
+            imageView.contentMode = .scaleAspectFit
+            if let src = (node["src"] as? NSNumber)?.int32Value {
+                if let image = imageCache[src] { imageView.image = image }
+                else if !missingImages.contains(src) { requestImage(src) }
+            }
+            if let tint = color(node["tint"]) { imageView.image = imageView.image?.withRenderingMode(.alwaysTemplate); imageView.tintColor = tint }
+            result = imageView
         default: result = UIView()
         }
         var outer = result
