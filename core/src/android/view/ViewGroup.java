@@ -25,6 +25,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     public static class MarginLayoutParams extends LayoutParams {
         public int leftMargin, topMargin, rightMargin, bottomMargin;
         public MarginLayoutParams(int w, int h) { super(w, h); }
+        public MarginLayoutParams(MarginLayoutParams src) { this((LayoutParams) src); }
         public MarginLayoutParams(LayoutParams src) {
             super(src);
             if (src instanceof MarginLayoutParams) { MarginLayoutParams m = (MarginLayoutParams) src; setMargins(m.leftMargin, m.topMargin, m.rightMargin, m.bottomMargin); }

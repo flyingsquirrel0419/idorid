@@ -144,10 +144,9 @@ final class VMDrawables {
         }
         if (tag.equals("vector")) return android.graphics.drawable.VectorDrawable.idoridInflate(n, res, theme);
         if (tag.equals("animated-vector")) {
-            // TODO: render pathData; for now an empty drawable with the vector's intrinsic size.
-            GradientDrawable v = new GradientDrawable();
-            v.setColor(0);
-            v.setSize((int) dim(res, attr(n, ATTR_WIDTH, "width", theme), theme, 24), (int) dim(res, attr(n, ATTR_HEIGHT, "height", theme), theme, 24));
+            android.graphics.drawable.AnimatedVectorDrawable v = new android.graphics.drawable.AnimatedVectorDrawable();
+            String ref = attr(n, ATTR_DRAWABLE, "drawable", theme);
+            if (ref != null && VMValue.kind(ref) == 'r') v.setVector(res.getDrawable(VMValue.intOf(ref, 0), theme));
             return v;
         }
         return null;

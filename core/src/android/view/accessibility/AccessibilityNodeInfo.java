@@ -24,4 +24,5 @@ public class AccessibilityNodeInfo {
     }
     public static class RangeInfo { private final int type;private final float min,max,current; private RangeInfo(int t,float min,float max,float current){type=t;this.min=min;this.max=max;this.current=current;} public static RangeInfo obtain(int t,float min,float max,float current){return new RangeInfo(t,min,max,current);} public int getType(){return type;} public float getMin(){return min;} public float getMax(){return max;} public float getCurrent(){return current;} }
     public static class ExtraRenderingInfo {}
+ public void setDismissable(boolean value) {}
 }

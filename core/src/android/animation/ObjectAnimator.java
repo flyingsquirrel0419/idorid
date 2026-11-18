@@ -5,6 +5,12 @@ public class ObjectAnimator extends ValueAnimator {
     private android.graphics.PathMeasure pathMeasure; private TypeConverter converter;
     private Object target; private String propertyName; private Property property;
     private float[] pendingFloats;
+    public static ObjectAnimator ofPropertyValuesHolder(Object target, PropertyValuesHolder... values) {
+        ObjectAnimator a = new ObjectAnimator(); a.target=target;
+        if (values.length > 0) { PropertyValuesHolder p=values[0]; a.propertyName=p.getPropertyName(); a.property=p.idoridProperty(); if (p.idoridFloats()!=null) { a.pendingFloats=p.idoridFloats(); a.setFloatValues(p.idoridFloats()); } else if (p.idoridInts()!=null) a.setIntValues(p.idoridInts()); }
+        return a;
+    }
+    public void setAutoCancel(boolean cancel) {}
     public static ObjectAnimator ofFloat(Object target, String name, float... values) { ObjectAnimator a = new ObjectAnimator(); a.target=target; a.propertyName=name; a.pendingFloats=values; a.setFloatValues(values); return a; }
     public static <T> ObjectAnimator ofFloat(T target, Property<T,Float> property, float... values) { ObjectAnimator a = new ObjectAnimator(); a.target=target; a.property=property; a.pendingFloats=values; a.setFloatValues(values); return a; }
     public static ObjectAnimator ofInt(Object target, String name, int... values) { ObjectAnimator a = new ObjectAnimator(); a.target=target; a.propertyName=name; a.setIntValues(values); return a; }

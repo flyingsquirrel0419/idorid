@@ -10,4 +10,5 @@ public interface WindowManager extends ViewManager {
         public LayoutParams(int width,int height,int x,int y,int type,int flags,int format) { super(width,height); this.x=x;this.y=y;this.type=type;this.flags=flags;this.format=format; }
         public void setTitle(CharSequence title) { this.title=title; } public CharSequence getTitle() { return title; }
     }
+ default WindowMetrics getCurrentWindowMetrics() { Display display=getDefaultDisplay(); return new WindowMetrics(new android.graphics.Rect(0,0,display.getWidth(),display.getHeight()), WindowInsets.CONSUMED); }
 }

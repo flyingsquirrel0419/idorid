@@ -61,4 +61,5 @@ public class Configuration implements Parcelable, Comparable<Configuration> {
         public Configuration createFromParcel(Parcel p) { return new Configuration(); }
         public Configuration[] newArray(int n) { return new Configuration[n]; }
     };
+ public int fontWeightAdjustment = Integer.MAX_VALUE;
 }

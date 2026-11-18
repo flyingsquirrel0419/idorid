@@ -13,6 +13,17 @@ import android.view.XmlAttrs;
 import java.util.ArrayList;
 
 public class TextView extends View {
+    private android.text.method.KeyListener keyListener;
+    private android.view.ActionMode.Callback selectionCallback;
+    private android.view.textclassifier.TextClassifier textClassifier = android.view.textclassifier.TextClassifier.NO_OP;
+    public android.text.method.KeyListener getKeyListener() { return keyListener; }
+    public void setKeyListener(android.text.method.KeyListener listener) { keyListener = listener; }
+    public android.view.ActionMode.Callback getCustomSelectionActionModeCallback() { return selectionCallback; }
+    public void setCustomSelectionActionModeCallback(android.view.ActionMode.Callback callback) { selectionCallback = callback; }
+    public android.view.textclassifier.TextClassifier getTextClassifier() { return textClassifier; }
+    public void setTextClassifier(android.view.textclassifier.TextClassifier classifier) { textClassifier = classifier == null ? android.view.textclassifier.TextClassifier.NO_OP : classifier; }
+    public android.text.PrecomputedText.Params getTextMetricsParams() { return new android.text.PrecomputedText.Params.Builder(getPaint()).build(); }
+
     public enum BufferType { NORMAL, SPANNABLE, EDITABLE }
     public interface OnEditorActionListener { boolean onEditorAction(TextView v, int actionId, android.view.KeyEvent event); }
     CharSequence text = "";

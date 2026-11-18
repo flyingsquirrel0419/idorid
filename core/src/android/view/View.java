@@ -892,4 +892,5 @@ public class View implements Drawable.Callback {
         else if (d == ViewGroup.LayoutParams.WRAP_CONTENT) sb.append("\"wrap\"");
         else sb.append(d);
     }
+ public void onProvideAutofillVirtualStructure(ViewStructure structure, int flags) {}
 }

@@ -193,3 +193,47 @@ fn androidx_template_app() {
     let v = ui(&app.click(button_id));
     by_text(&v, "Tapped 2 times");
 }
+
+#[test]
+fn planets_showcase() {
+    let mut app = load("examples/planets.apk");
+    let v = ui(&app.launch());
+    by_text(&v, "Planets");
+    by_text(&v, "8 planets");
+    // A tall window exposes all rows; RecyclerView only creates rows near its viewport.
+    let v = ui(&app.set_window_size(390, 1200));
+    for name in [
+        "Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune",
+    ] {
+        let node = by_text(&v, name);
+        assert!(node["frame"][2].as_i64().unwrap() > 0);
+        assert!(node["frame"][3].as_i64().unwrap() > 0);
+    }
+    let favorites = id(by_text(&v, "Favorites only"));
+    let v = ui(&app.click(favorites));
+    by_text(&v, "2 planets");
+    by_text(&v, "Earth");
+    by_text(&v, "Saturn");
+    let v = ui(&app.click(favorites));
+    let v = ui(&app.set_text(id(by_type(&v, "EditText")), "ma"));
+    by_text(&v, "1 planet");
+    by_text(&v, "Mars");
+    assert!(find(&v["root"], &|n| n["text"] == "Mercury").is_none());
+    let card = find(&v["root"], &|n| {
+        n["clickable"] == true && find(n, &|child| child["text"] == "Mars").is_some()
+    })
+    .expect("clickable Mars card");
+    let v = ui(&app.click(id(card)));
+    assert_eq!(v["title"], "Mars");
+    by_text(&v, "Mars has 2 moons · day 24.7 h.");
+    let v = ui(&app.click(id(by_text(&v, "Back"))));
+    by_text(&v, "Planets");
+    let card = find(&v["root"], &|n| {
+        n["clickable"] == true && find(n, &|child| child["text"] == "Mars").is_some()
+    })
+    .expect("clickable Mars card after return");
+    ui(&app.click(id(card)));
+    let v = ui(&app.back());
+    by_text(&v, "Planets");
+    by_text(&v, "Mars");
+}

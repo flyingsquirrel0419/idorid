@@ -113,4 +113,5 @@ public abstract class Context {
     public void registerComponentCallbacks(ComponentCallbacks c) {}
     public void unregisterComponentCallbacks(ComponentCallbacks c) {}
     public int getWallpaperDesiredMinimumWidth() { return 0; }
+ public java.io.FileOutputStream openFileOutput(String name,int mode) throws java.io.FileNotFoundException { throw new java.io.FileNotFoundException(name); }
 }

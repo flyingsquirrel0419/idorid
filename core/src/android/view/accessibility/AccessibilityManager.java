@@ -6,4 +6,5 @@ public class AccessibilityManager {
     public boolean isEnabled(){return false;} public boolean isTouchExplorationEnabled(){return false;}
     public boolean addTouchExplorationStateChangeListener(TouchExplorationStateChangeListener l){return true;} public boolean removeTouchExplorationStateChangeListener(TouchExplorationStateChangeListener l){return true;}
     public boolean addAccessibilityStateChangeListener(AccessibilityStateChangeListener l){return true;} public boolean removeAccessibilityStateChangeListener(AccessibilityStateChangeListener l){return true;} public void sendAccessibilityEvent(AccessibilityEvent event){}
+ public int getRecommendedTimeoutMillis(int originalTimeout, int uiContentFlags) { return originalTimeout; }
 }

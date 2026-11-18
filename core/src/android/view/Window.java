@@ -42,6 +42,7 @@ public class Window {
         ActionMode onWindowStartingActionMode(ActionMode.Callback callback, int type);
         void onActionModeStarted(ActionMode mode);
         void onActionModeFinished(ActionMode mode);
+        default void onProvideKeyboardShortcuts(java.util.List data, Menu menu, int deviceId) {}
         default void onPointerCaptureChanged(boolean hasCapture) {}
     }
     private Callback callback;
