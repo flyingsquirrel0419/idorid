@@ -6,7 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
 D8="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)d8"
 ANDROID_JAR="$(ls -d "$SDK"/platforms/android-*/ | sort -V | tail -1)android.jar"
-KOTLINC="${KOTLINC:-$(command -v kotlinc || echo "$HOME/tools/kotlinc/bin/kotlinc")}"
+KOTLINC="${KOTLINC:-$( [ -x "$HOME/tools/kotlinc/bin/kotlinc" ] && echo "$HOME/tools/kotlinc/bin/kotlinc" || command -v kotlinc)}"
+KOTLINC="$(readlink -f "$KOTLINC")"
 STDLIB="$(dirname "$KOTLINC")/../lib/kotlin-stdlib.jar"
 BIN="$ROOT/target/release/idorid"
 OUT="$ROOT/tests/out/kotlin"
@@ -14,7 +15,7 @@ mkdir -p "$OUT"
 cargo build -q --release -p idorid-cli --manifest-path "$ROOT/Cargo.toml" || exit 1
 if [ ! -f "$OUT/stdlib/classes.dex" ] || [ "$STDLIB" -nt "$OUT/stdlib/classes.dex" ]; then
   mkdir -p "$OUT/stdlib"
-  "$D8" --min-api 24 --lib "$ANDROID_JAR" --output "$OUT/stdlib" "$STDLIB" >/dev/null 2>&1 || exit 1
+  "$D8" --min-api 24 --lib "$ANDROID_JAR" --output "$OUT/stdlib" "$STDLIB" > "$OUT/stdlib/d8.log" 2>&1 || { echo "d8 of $STDLIB failed"; tail -20 "$OUT/stdlib/d8.log"; exit 1; }
 fi
 pass=0; fail=0; failed=()
 for src in "$ROOT"/tests/kotlin/${1:-*}.kt; do

@@ -16,7 +16,8 @@ extra=()
 if [ -n "$(find "$app/src" -name '*.kt' -print -quit)" ]; then
   # Kotlin sources: compile with kotlinc (Java sources visible for mixed projects)
   # and dex the Kotlin stdlib into the app, like a Gradle debug build does.
-  kotlinc="${KOTLINC:-$(command -v kotlinc || echo "$HOME/tools/kotlinc/bin/kotlinc")}"
+  kotlinc="${KOTLINC:-$( [ -x "$HOME/tools/kotlinc/bin/kotlinc" ] && echo "$HOME/tools/kotlinc/bin/kotlinc" || command -v kotlinc)}"
+  kotlinc="$(readlink -f "$kotlinc")"
   stdlib="$(dirname "$kotlinc")/../lib/kotlin-stdlib.jar"
   "$kotlinc" -jvm-target 1.8 -nowarn -classpath "$jar" -d "$tmp/classes" \
     $(find "$app/src" "$tmp/gen" -name '*.kt' -o -name '*.java') 2>&1 | grep -v '^warning' || true
