@@ -89,6 +89,7 @@ fn todo_app_full_flow() {
         .resource_bytes(logo["src"].as_u64().unwrap() as u32)
         .expect("logo bytes");
     assert!(png.starts_with(b"\x89PNG"));
+    assert!(app.vm.image_sizer.as_ref().unwrap()(logo["src"].as_u64().unwrap() as u32).is_some());
     let v = ui(&app.back());
     by_text(&v, "Todo (Android)");
     // delayed handler messages report when to tick next

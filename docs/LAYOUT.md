@@ -31,8 +31,8 @@ Only the host knows real font metrics. The VM asks through
 
 ```c
 typedef void (*idorid_measure_text_fn)(const char *utf8, float size, int32_t flags,
-                                       float max_width, float out[3]);
-// out = { width, height, baseline }; flags bit0 bold, bit1 italic, bit2 monospace,
+                                       float max_width, float out[2]);
+// out = { width, height }; flags bit0 bold, bit1 italic, bit2 monospace,
 // bits 8..15 maxLines (0 = unlimited)
 void idorid_set_text_measurer(idorid_measure_text_fn fn);
 ```

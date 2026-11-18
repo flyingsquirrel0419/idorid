@@ -8,7 +8,7 @@ use idorid_vm::Vm;
 fn usage() -> ExitCode {
     eprintln!(
         "usage:\n  idorid main <file.dex|file.apk>... <MainClass>   run static main(String[])\n  idorid run <app.apk> [script...]                 launch an app headless; commands from args or stdin:
-                                                   size <id> <w> <h> | touch <id> <action> <x> <y> | click <id> | type <id> <text> | back | tick | json | log | quit
+                                                   window <w> <h> | size <id> <w> <h> | touch <id> <action> <x> <y> | click <id> | type <id> <text> | back | tick | json | log | quit
   idorid dump <file.dex>                           list classes and methods\n  idorid missing <app.apk|dex>...                  framework classes/methods/fields the app needs but core lacks\n\nflags: --stats  print instruction count, GC and timing"
     );
     ExitCode::from(2)
@@ -254,6 +254,9 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         let a1 = parts.next().unwrap_or("");
         let rest = parts.next().unwrap_or("");
         let out = match cmd {
+            "window" => {
+                app.set_window_size(a1.parse().unwrap_or(0), rest.trim().parse().unwrap_or(0))
+            }
             "size" => {
                 let mut p = rest.split_whitespace();
                 app.set_size(

@@ -5,6 +5,21 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+mod image_size;
+
+type MeasureTextFn = unsafe extern "C" fn(*const c_char, f32, i32, f32, *mut f32);
+static TEXT_MEASURER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Set or clear the process-wide text measurement callback.
+#[no_mangle]
+pub extern "C" fn idorid_set_text_measurer(callback: Option<MeasureTextFn>) {
+    TEXT_MEASURER.store(
+        callback.map_or(std::ptr::null_mut(), |f| f as *mut ()),
+        Ordering::Release,
+    );
+}
 
 use idorid_apk::axml::{Document, Element};
 use idorid_apk::resources::{DimensionUnit, ResValue};
@@ -246,6 +261,24 @@ impl App {
             vm.add_dex(Rc::from(d))?;
         }
         vm.resources = Some(Box::new(provider));
+        vm.text_measurer = Some(Box::new(|text, size, flags, max_width| {
+            let ptr = TEXT_MEASURER.load(Ordering::Acquire);
+            if ptr.is_null() {
+                return idorid_vm::metrics::approximate(text, size, flags, max_width);
+            }
+            let text = CString::new(text.replace('\0', "\u{fffd}")).unwrap();
+            let mut out = [0.0; 2];
+            let callback: MeasureTextFn = unsafe { std::mem::transmute(ptr) };
+            unsafe { callback(text.as_ptr(), size, flags, max_width, out.as_mut_ptr()) };
+            (out[0], out[1])
+        }));
+        let image_apk = apk.clone();
+        let image_resources = res_index.clone();
+        vm.image_sizer = Some(Box::new(move |id| {
+            let path = image_resources.as_ref()?.file_path(id)?;
+            let bytes = image_apk.read(&path)?;
+            image_size::size_dp(&path, &bytes)
+        }));
         let log = Rc::new(RefCell::new(String::new()));
         let sink = log.clone();
         vm.out = Box::new(move |fd, s| {
@@ -329,6 +362,12 @@ impl App {
         self.call(
             "setSize(III)Ljava/lang/String;",
             &[CallArg::Int(id), CallArg::Int(w), CallArg::Int(h)],
+        )
+    }
+    pub fn set_window_size(&mut self, w: i32, h: i32) -> String {
+        self.call(
+            "setWindowSize(II)Ljava/lang/String;",
+            &[CallArg::Int(w), CallArg::Int(h)],
         )
     }
     pub fn touch(&mut self, id: i32, action: i32, x: f32, y: f32) -> String {
@@ -518,6 +557,7 @@ macro_rules! vm_fn {
 }
 
 vm_fn!(idorid_vm_launch() => |app| app.launch());
+vm_fn!(idorid_vm_set_window_size(w: i32, h: i32) => |app| app.set_window_size(w, h));
 vm_fn!(idorid_vm_set_size(view_id: i32, w: i32, h: i32) => |app| app.set_size(view_id, w, h));
 vm_fn!(idorid_vm_touch(view_id: i32, action: i32, x: f32, y: f32) => |app| app.touch(view_id, action, x, y));
 vm_fn!(idorid_vm_click(view_id: i32) => |app| app.click(view_id));
