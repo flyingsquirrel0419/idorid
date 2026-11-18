@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Showcase" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#FF3D5AFE</item>
+        <item name="colorOnPrimary">#FFFFFFFF</item>
+        <item name="colorSecondaryContainer">#FFDDE1FF</item>
+    </style>
+</resources>

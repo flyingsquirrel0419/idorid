@@ -45,6 +45,7 @@ public class ColorStateList implements Parcelable {
     static final int ATTR_COLOR = 0x010101a5, ATTR_ALPHA = 0x0101031f, ATTR_LSTAR = 0x01010647;
     /** idorid: inflates res/color/*.xml (a <selector> of <item android:color android:state_*>). */
     public static ColorStateList idoridInflate(Resources res, String path, Resources.Theme theme) {
+        if (path.startsWith("res/framework/")) return null;
         VMXml root = VMXml.parse(res.idoridXml(path));
         if (root == null) return null;
         int n = root.children.size();

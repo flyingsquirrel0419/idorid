@@ -138,7 +138,24 @@ public class Resources {
     private static NotFoundException nf(int id) { return new NotFoundException("Resource ID #0x" + Integer.toHexString(id)); }
 
     /** idorid: encoded value of a resource, following references to a primitive or file. */
-    public String idoridValue(int id) { return id == 0 ? null : nativeValue(id); }
+    public String idoridValue(int id) {
+        if (id == 0) return null;
+        String v = nativeValue(id);
+        if (v == null && (id >>> 24) == 1) {
+            // framework files (drawables, layouts, anims) are not bundled: expose them as placeholders
+            String n = nativeName(id);
+            if (n != null && (n.contains(":drawable/") || n.contains(":mipmap/") || n.contains(":anim/") || n.contains(":animator/") || n.contains(":interpolator/") || n.contains(":color/")))
+                v = "p:res/framework/" + n.substring(n.indexOf(':') + 1) + ".xml";
+        }
+        return v;
+    }
+    /** idorid: transparent stand-in for framework drawables we do not bundle. */
+    static Drawable placeholder() {
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setColor(0);
+        d.setSize(24, 24);
+        return d;
+    }
 
     void fillValue(String v, TypedValue out, boolean resolveRefs) {
         char k = VMValue.kind(v);
@@ -215,7 +232,8 @@ public class Resources {
     public Drawable getDrawable(int id, Theme t) {
         String v = idoridValue(id);
         if (v == null) throw nf(id);
-        return drawableFor(id, v, t);
+        Drawable d = drawableFor(id, v, t);
+        return d != null ? d : placeholder();
     }
     public Drawable getDrawableForDensity(int id, int density) { return getDrawable(id); }
     public Drawable getDrawableForDensity(int id, int density, Theme t) { return getDrawable(id, t); }
@@ -227,6 +245,7 @@ public class Resources {
             case 'c': case 'i': return new ColorDrawable(VMValue.intOf(v, 0));
             case 'p': {
                 String path = VMValue.body(v);
+                if (path.startsWith("res/framework/")) return null;
                 if (path.endsWith(".xml")) { Drawable d = VMDrawables.inflate(this, path, t); if (d != null) return d; return new ColorDrawable(0); }
                 return Drawable.fromResource(id);
             }

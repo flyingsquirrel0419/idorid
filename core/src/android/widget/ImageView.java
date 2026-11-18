@@ -24,8 +24,40 @@ public class ImageView extends View {
     }
     private boolean adjustViewBounds;
     private int maxW = Integer.MAX_VALUE, maxH = Integer.MAX_VALUE;
-    public void setImageResource(int id) { if (id != src) { src = id; requestLayout(); } }
-    public void setImageDrawable(android.graphics.drawable.Drawable d) { image=d; setImageResource(d == null ? 0 : d.idoridResource()); }
+    public void setImageResource(int id) {
+        if (id == src && image != null) return;
+        src = id;
+        android.graphics.drawable.Drawable d = null;
+        if (id != 0) { try { d = getContext().getDrawable(id); } catch (RuntimeException e) {} }
+        installImage(d);
+        requestLayout();
+    }
+    private void installImage(android.graphics.drawable.Drawable d) {
+        if (image != null) image.setCallback(null);
+        image = d;
+        if (d != null) { d.setCallback(this); if (imageTint != null) d.setTintList(imageTint); }
+        invalidate();
+    }
+    /** Non-bitmap drawables (vectors, shapes) are painted as canvas ops; bitmaps go to the host by resource id. */
+    private boolean imageIsBitmap() { return image == null || (src != 0 && (image instanceof android.graphics.drawable.BitmapDrawable || image.getClass().getName().startsWith("android.graphics.drawable.Drawable$"))); }
+    protected boolean idoridNeedsCanvas() { return super.idoridNeedsCanvas() || !imageIsBitmap(); }
+    protected void onDraw(android.graphics.Canvas c) {
+        super.onDraw(c);
+        if (image == null || imageIsBitmap()) return;
+        int w = getWidth() - getPaddingLeft() - getPaddingRight(), h = getHeight() - getPaddingTop() - getPaddingBottom();
+        int iw = image.getIntrinsicWidth(), ih = image.getIntrinsicHeight();
+        if (iw <= 0 || ih <= 0 || scale == ScaleType.FIT_XY) { iw = w; ih = h; }
+        else if (scale != ScaleType.CENTER) {
+            float f = Math.min((float) w / iw, (float) h / ih);
+            if (scale == ScaleType.CENTER_CROP) f = Math.max((float) w / iw, (float) h / ih);
+            if (scale == ScaleType.CENTER_INSIDE) f = Math.min(1f, f);
+            iw = Math.round(iw * f); ih = Math.round(ih * f);
+        }
+        int l = getPaddingLeft() + (w - iw) / 2, t = getPaddingTop() + (h - ih) / 2;
+        image.setBounds(l, t, l + iw, t + ih);
+        image.draw(c);
+    }
+    public void setImageDrawable(android.graphics.drawable.Drawable d) { if (d == image) return; src = d == null ? 0 : d.idoridResource(); installImage(d); requestLayout(); }
     public void setMaxWidth(int w) { maxW = w; requestLayout(); }
     public void setMaxHeight(int h) { maxH = h; requestLayout(); }
     public int getMaxWidth() { return maxW; }

@@ -281,7 +281,7 @@ public class View implements Drawable.Callback {
     }
     protected void dispatchDraw(android.graphics.Canvas c) {}
     /** idorid: whether this node needs canvas ops (custom drawing or a non-color background). */
-    boolean idoridNeedsCanvas() {
+    protected boolean idoridNeedsCanvas() {
         return (mBackground != null && !(mBackground instanceof ColorDrawable)) || mForeground != null || VMViews.overridesOnDraw(this);
     }
     public void setAlpha(float a) { alpha = a; }

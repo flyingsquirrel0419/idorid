@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Planets</string>
+    <string name="search_hint">Filter planets</string>
+    <string name="favorites_only">Favorites only</string>
+</resources>
