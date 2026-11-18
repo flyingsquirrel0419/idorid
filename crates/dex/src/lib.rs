@@ -129,8 +129,10 @@ impl<'a> CodeItem<'a> {
     /// Decode code units into an owned Vec (cheap; done once per method).
     pub fn insns(&self) -> Vec<u16> {
         self.insns_bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .collect()
     }
 }
@@ -497,7 +499,9 @@ impl<'a> Dex<'a> {
 
     fn read_value(&self, p: &mut usize) -> Result<EncodedValue> {
         let d = self.data;
-        let b = *d.get(*p).ok_or(DexError::OutOfBounds("encoded_value", *p))?;
+        let b = *d
+            .get(*p)
+            .ok_or(DexError::OutOfBounds("encoded_value", *p))?;
         *p += 1;
         let ty = b & 0x1f;
         let arg = (b >> 5) as usize;
@@ -569,7 +573,9 @@ pub fn mutf8_to_utf16(raw: &[u8]) -> Vec<u16> {
             out.push(((a & 0x1f) << 6) | (raw[i + 1] as u16 & 0x3f));
             i += 2;
         } else if a & 0xf0 == 0xe0 && i + 2 < raw.len() {
-            out.push(((a & 0x0f) << 12) | ((raw[i + 1] as u16 & 0x3f) << 6) | (raw[i + 2] as u16 & 0x3f));
+            out.push(
+                ((a & 0x0f) << 12) | ((raw[i + 1] as u16 & 0x3f) << 6) | (raw[i + 2] as u16 & 0x3f),
+            );
             i += 3;
         } else {
             out.push(0xfffd);

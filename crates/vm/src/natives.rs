@@ -4,7 +4,10 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 use crate::heap::{JStr, Obj, ObjData, Ref, StrData};
-use crate::{descriptor_to_java, java_to_descriptor, regex, text, ClassId, ClassSrc, JResult, NativeFn, Throw, Vm};
+use crate::{
+    descriptor_to_java, java_to_descriptor, regex, text, ClassId, ClassSrc, JResult, NativeFn,
+    Throw, Vm,
+};
 
 const SIOOBE: &str = "Ljava/lang/StringIndexOutOfBoundsException;";
 const NPE: &str = "Ljava/lang/NullPointerException;";
@@ -49,7 +52,7 @@ pub fn registry() -> HashMap<&'static str, NativeFn> {
                 _ => return vm.throw_new(NPE, "bytes"),
             };
             let s = String::from_utf8_lossy(&bytes);
-            set_str(vm, a[0], JStr::from_str(&s));
+            set_str(vm, a[0], JStr::from_rust(&s));
             Ok(0)
         },
         "Ljava/lang/String;->length()I" => |vm, a| Ok(js(vm, a[0]).len() as u64),
@@ -64,7 +67,7 @@ pub fn registry() -> HashMap<&'static str, NativeFn> {
         },
         "Ljava/lang/String;->equals(Ljava/lang/Object;)Z" => |vm, a| {
             if a[0] == a[1] { return Ok(1) }
-            Ok(match vm.jstr(a[1]) { Some(o) => js(vm, a[0]).eq(o) as u64, None => 0 })
+            Ok(match vm.jstr(a[1]) { Some(o) => js(vm, a[0]).equals(o) as u64, None => 0 })
         },
         "Ljava/lang/String;->hashCode()I" => |vm, a| {
             match &mut vm.heap.get_mut(a[0]).unwrap().data {
@@ -352,9 +355,19 @@ pub fn registry() -> HashMap<&'static str, NativeFn> {
             if (x - x.trunc()).abs() == 0.5 { 2.0 * (x / 2.0).round() } else { r }
         }
     }
-    m.insert("Ljava/lang/Math;->atan2(DD)D", |_, a| Ok(f64::from_bits(wide(a, 0)).atan2(f64::from_bits(wide(a, 2))).to_bits()));
-    m.insert("Ljava/lang/Math;->pow(DD)D", |_, a| Ok(java_pow(f64::from_bits(wide(a, 0)), f64::from_bits(wide(a, 2))).to_bits()));
-    m.insert("Ljava/lang/Math;->hypot(DD)D", |_, a| Ok(f64::from_bits(wide(a, 0)).hypot(f64::from_bits(wide(a, 2))).to_bits()));
+    m.insert("Ljava/lang/Math;->atan2(DD)D", |_, a| {
+        Ok(f64::from_bits(wide(a, 0))
+            .atan2(f64::from_bits(wide(a, 2)))
+            .to_bits())
+    });
+    m.insert("Ljava/lang/Math;->pow(DD)D", |_, a| {
+        Ok(java_pow(f64::from_bits(wide(a, 0)), f64::from_bits(wide(a, 2))).to_bits())
+    });
+    m.insert("Ljava/lang/Math;->hypot(DD)D", |_, a| {
+        Ok(f64::from_bits(wide(a, 0))
+            .hypot(f64::from_bits(wide(a, 2)))
+            .to_bits())
+    });
     crate::natives_android::register(&mut m);
     crate::natives_android::register_reflect(&mut m);
     m
@@ -388,8 +401,14 @@ fn fold(c: u16) -> u32 {
 }
 
 fn map_case(c: u32, upper: bool) -> u32 {
-    let Some(ch) = char::from_u32(c) else { return c };
-    let mut it: Box<dyn Iterator<Item = char>> = if upper { Box::new(ch.to_uppercase()) } else { Box::new(ch.to_lowercase()) };
+    let Some(ch) = char::from_u32(c) else {
+        return c;
+    };
+    let mut it: Box<dyn Iterator<Item = char>> = if upper {
+        Box::new(ch.to_uppercase())
+    } else {
+        Box::new(ch.to_lowercase())
+    };
     let first = it.next().unwrap_or(ch);
     if it.next().is_some() {
         c
@@ -399,7 +418,9 @@ fn map_case(c: u32, upper: bool) -> u32 {
 }
 
 fn utf16_of(cp: u32) -> Vec<u16> {
-    char::from_u32(cp).map(|c| c.encode_utf16(&mut [0; 2]).to_vec()).unwrap_or_default()
+    char::from_u32(cp)
+        .map(|c| c.encode_utf16(&mut [0; 2]).to_vec())
+        .unwrap_or_default()
 }
 
 fn find_sub(hay: &[u16], needle: &[u16], from: usize) -> i32 {
@@ -409,7 +430,11 @@ fn find_sub(hay: &[u16], needle: &[u16], from: usize) -> i32 {
     if from >= hay.len() || needle.len() > hay.len() {
         return -1;
     }
-    hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| (p + from) as i32).unwrap_or(-1)
+    hay[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| (p + from) as i32)
+        .unwrap_or(-1)
 }
 
 thread_local! {
@@ -471,7 +496,10 @@ pub fn new_instance(vm: &mut Vm, c: ClassId) -> JResult<Ref> {
     }
     vm.ensure_init(c)?;
     let Some(ctor) = vm.find_declared(c, "<init>()V") else {
-        let n = format!("{} has no zero argument constructor", vm.class(c).java_name());
+        let n = format!(
+            "{} has no zero argument constructor",
+            vm.class(c).java_name()
+        );
         return vm.throw_new("Ljava/lang/InstantiationException;", &n);
     };
     let obj = vm.alloc_instance(c);
@@ -497,7 +525,10 @@ fn object_clone(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
         }
         d => d,
     };
-    Ok(vm.heap.alloc(Obj { class: obj.class, data }) as u64)
+    Ok(vm.heap.alloc(Obj {
+        class: obj.class,
+        data,
+    }) as u64)
 }
 
 fn arraycopy(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
@@ -510,7 +541,12 @@ fn arraycopy(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
     let (Some(sl), Some(dl)) = (sl, dl) else {
         return vm.throw_new("Ljava/lang/ArrayStoreException;", "arraycopy: not an array");
     };
-    if sp < 0 || dp < 0 || len < 0 || sp as usize + len as usize > sl || dp as usize + len as usize > dl {
+    if sp < 0
+        || dp < 0
+        || len < 0
+        || sp as usize + len as usize > sl
+        || dp as usize + len as usize > dl
+    {
         let msg = format!("src.length={sl} srcPos={sp} dst.length={dl} dstPos={dp} length={len}");
         return vm.throw_new("Ljava/lang/ArrayIndexOutOfBoundsException;", &msg);
     }
@@ -532,7 +568,10 @@ fn arraycopy(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
         return Ok(0);
     }
     // Take the source out temporarily to avoid aliasing borrows.
-    let src_data = std::mem::replace(&mut vm.heap.get_mut(src).unwrap().data, ObjData::ArrB(Box::new([])));
+    let src_data = std::mem::replace(
+        &mut vm.heap.get_mut(src).unwrap().data,
+        ObjData::ArrB(Box::new([])),
+    );
     let mut store_err = false;
     let mut type_err = false;
     if let ObjData::ArrL(s) = &src_data {
@@ -540,25 +579,42 @@ fn arraycopy(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
         let sc = vm.heap.get(src).unwrap().class;
         if dc != sc {
             if let ClassSrc::Array { component } = vm.class(dc).src {
-                store_err = s[sp..sp + len].iter().any(|&e| e != 0 && !vm.instance_of(e, component));
+                store_err = s[sp..sp + len]
+                    .iter()
+                    .any(|&e| e != 0 && !vm.instance_of(e, component));
             }
         }
     }
     if !store_err {
         let d = &mut vm.heap.get_mut(dst).unwrap().data;
         match (&src_data, d) {
-            (ObjData::ArrB(s), ObjData::ArrB(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
-            (ObjData::ArrC(s), ObjData::ArrC(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
-            (ObjData::ArrS(s), ObjData::ArrS(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
-            (ObjData::ArrI(s), ObjData::ArrI(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
-            (ObjData::ArrJ(s), ObjData::ArrJ(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
-            (ObjData::ArrL(s), ObjData::ArrL(d)) => d[dp..dp + len].copy_from_slice(&s[sp..sp + len]),
+            (ObjData::ArrB(s), ObjData::ArrB(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
+            (ObjData::ArrC(s), ObjData::ArrC(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
+            (ObjData::ArrS(s), ObjData::ArrS(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
+            (ObjData::ArrI(s), ObjData::ArrI(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
+            (ObjData::ArrJ(s), ObjData::ArrJ(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
+            (ObjData::ArrL(s), ObjData::ArrL(d)) => {
+                d[dp..dp + len].copy_from_slice(&s[sp..sp + len])
+            }
             _ => type_err = true,
         }
     }
     vm.heap.get_mut(src).unwrap().data = src_data;
     if store_err || type_err {
-        return vm.throw_new("Ljava/lang/ArrayStoreException;", "arraycopy: type mismatch");
+        return vm.throw_new(
+            "Ljava/lang/ArrayStoreException;",
+            "arraycopy: type mismatch",
+        );
     }
     Ok(0)
 }
@@ -571,7 +627,10 @@ fn fill_in_stack_trace(vm: &mut Vm, a: &[u32]) -> JResult<u64> {
     for f in vm.frames.iter().rev() {
         let m = &vm.methods[f.method as usize];
         // Skip the exception's own constructor chain.
-        if skipping && (&*m.name == "<init>" || &*m.name == "fillInStackTrace") && vm.is_subclass(this_class, m.class) {
+        if skipping
+            && (&*m.name == "<init>" || &*m.name == "fillInStackTrace")
+            && vm.is_subclass(this_class, m.class)
+        {
             continue;
         }
         skipping = false;
@@ -616,7 +675,9 @@ enum Num {
 fn unbox(vm: &Vm, r: Ref) -> Option<Num> {
     let o = vm.heap.get(r)?;
     let name = &*vm.class(o.class).name;
-    let ObjData::Inst(f) = &o.data else { return None };
+    let ObjData::Inst(f) = &o.data else {
+        return None;
+    };
     let v0 = *f.first()?;
     Some(match name {
         "Ljava/lang/Integer;" => Num::I(v0 as i32 as i64, 32),
@@ -643,7 +704,9 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
     let chars: Vec<char> = fmt.chars().collect();
     let mut i = 0;
     let mut next_arg = 0usize;
-    let bad = |vm: &mut Vm, m: &str| -> JResult<String> { vm.throw_new("Ljava/util/IllegalFormatException;", m) };
+    let bad = |vm: &mut Vm, m: &str| -> JResult<String> {
+        vm.throw_new("Ljava/util/IllegalFormatException;", m)
+    };
     while i < chars.len() {
         let c = chars[i];
         if c != '%' {
@@ -686,7 +749,9 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
             }
             prec = p.parse().ok();
         }
-        let Some(&conv) = chars.get(i) else { return bad(vm, "trailing %") };
+        let Some(&conv) = chars.get(i) else {
+            return bad(vm, "trailing %");
+        };
         i += 1;
         let width: usize = width.parse().unwrap_or(0);
         if conv == '%' {
@@ -703,7 +768,10 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
             n
         });
         let Some(&arg) = argv.get(ai) else {
-            return vm.throw_new("Ljava/util/MissingFormatArgumentException;", &format!("Format specifier '%{conv}'"));
+            return vm.throw_new(
+                "Ljava/util/MissingFormatArgumentException;",
+                &format!("Format specifier '%{conv}'"),
+            );
         };
         let body = match conv {
             'd' => match unbox(vm, arg) {
@@ -720,12 +788,25 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
                     s
                 }
                 _ if arg == 0 => "null".into(),
-                _ => return vm.throw_new("Ljava/util/IllegalFormatConversionException;", &format!("d != {}", class_name(vm, arg))),
+                _ => {
+                    return vm.throw_new(
+                        "Ljava/util/IllegalFormatConversionException;",
+                        &format!("d != {}", class_name(vm, arg)),
+                    )
+                }
             },
             'x' | 'X' | 'o' => match unbox(vm, arg) {
                 Some(Num::I(v, bits)) => {
-                    let u = if bits == 64 { v as u64 } else { (v as u64) & ((1u64 << bits) - 1) };
-                    let s = if conv == 'o' { format!("{u:o}") } else { format!("{u:x}") };
+                    let u = if bits == 64 {
+                        v as u64
+                    } else {
+                        (v as u64) & ((1u64 << bits) - 1)
+                    };
+                    let s = if conv == 'o' {
+                        format!("{u:o}")
+                    } else {
+                        format!("{u:x}")
+                    };
                     if conv == 'X' {
                         s.to_uppercase()
                     } else {
@@ -746,7 +827,11 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
                             if a != 0.0 && !(1e-4..10f64.powi(p.max(1) as i32)).contains(&a) {
                                 text::sci(v, p.saturating_sub(1), conv == 'G')
                             } else {
-                                let digits = if a == 0.0 { 0 } else { a.log10().floor() as i32 + 1 };
+                                let digits = if a == 0.0 {
+                                    0
+                                } else {
+                                    a.log10().floor() as i32 + 1
+                                };
                                 text::fixed(v, (p as i32 - digits).max(0) as usize)
                             }
                         }
@@ -760,7 +845,12 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
                     s
                 }
                 _ if arg == 0 => "null".into(),
-                _ => return vm.throw_new("Ljava/util/IllegalFormatConversionException;", &format!("{conv} != {}", class_name(vm, arg))),
+                _ => {
+                    return vm.throw_new(
+                        "Ljava/util/IllegalFormatConversionException;",
+                        &format!("{conv} != {}", class_name(vm, arg)),
+                    )
+                }
             },
             'c' | 'C' => match unbox(vm, arg) {
                 Some(Num::C(c)) => char::from_u32(c).unwrap_or('?').to_string(),
@@ -789,7 +879,12 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
                     s
                 }
             }
-            _ => return vm.throw_new("Ljava/util/UnknownFormatConversionException;", &format!("Conversion = '{conv}'")),
+            _ => {
+                return vm.throw_new(
+                    "Ljava/util/UnknownFormatConversionException;",
+                    &format!("Conversion = '{conv}'"),
+                )
+            }
         };
         out.push_str(&pad(body, width, &flags));
     }
@@ -797,7 +892,10 @@ fn format(vm: &mut Vm, fmt: &str, args: Ref) -> JResult<String> {
 }
 
 fn class_name(vm: &Vm, r: Ref) -> String {
-    vm.heap.get(r).map(|o| vm.class(o.class).java_name()).unwrap_or_default()
+    vm.heap
+        .get(r)
+        .map(|o| vm.class(o.class).java_name())
+        .unwrap_or_default()
 }
 
 fn pad(s: String, width: usize, flags: &str) -> String {
@@ -809,7 +907,11 @@ fn pad(s: String, width: usize, flags: &str) -> String {
     if flags.contains('-') {
         format!("{s}{}", " ".repeat(fill))
     } else if flags.contains('0') {
-        let (sign, rest) = if s.starts_with(['-', '+']) { s.split_at(1) } else { ("", s.as_str()) };
+        let (sign, rest) = if s.starts_with(['-', '+']) {
+            s.split_at(1)
+        } else {
+            ("", s.as_str())
+        };
         format!("{sign}{}{rest}", "0".repeat(fill))
     } else {
         format!("{}{s}", " ".repeat(fill))

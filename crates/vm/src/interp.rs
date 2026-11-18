@@ -52,7 +52,12 @@ impl Vm {
         let n = args.len().min(ins);
         self.stack[fp + regs - ins..fp + regs - ins + n].copy_from_slice(&args[..n]);
         self.sp = fp + regs;
-        self.frames.push(Frame { method: m, code: code.clone(), pc: 0, fp });
+        self.frames.push(Frame {
+            method: m,
+            code: code.clone(),
+            pc: 0,
+            fp,
+        });
         let base = self.frames.len() - 1;
         let mut st = State { code, pc: 0, fp };
         loop {
@@ -69,7 +74,12 @@ impl Vm {
 
     pub fn method_desc(&self, m: MethodIdx) -> String {
         let meth = &self.methods[m as usize];
-        format!("{}.{}{}", self.class(meth.class).java_name(), meth.name, meth.sig)
+        format!(
+            "{}.{}{}",
+            self.class(meth.class).java_name(),
+            meth.name,
+            meth.sig
+        )
     }
 
     #[inline]
@@ -238,7 +248,7 @@ impl Vm {
                         self.exception = 0;
                         pc += 1;
                     }
-                    0x0e | 0x0f | 0x10 | 0x11 => {
+                    0x0e..=0x11 => {
                         let v = match op {
                             0x0e => 0,
                             0x10 => rw!(aa),
@@ -316,7 +326,11 @@ impl Vm {
                             let c = self.resolve_type(dex, w!(1))?;
                             if !self.instance_of(v, c) {
                                 let from = self.class(self.heap.get(v).unwrap().class).java_name();
-                                let msg = format!("{} cannot be cast to {}", from, self.class(c).java_name());
+                                let msg = format!(
+                                    "{} cannot be cast to {}",
+                                    from,
+                                    self.class(c).java_name()
+                                );
                                 return self.throw_new("Ljava/lang/ClassCastException;", &msg);
                             }
                         }
@@ -344,7 +358,10 @@ impl Vm {
                     }
                     0x22 => {
                         let c = self.resolve_type(dex, w!(1))?;
-                        if self.class(c).flags & (idorid_dex::access::ABSTRACT | idorid_dex::access::INTERFACE) != 0 {
+                        if self.class(c).flags
+                            & (idorid_dex::access::ABSTRACT | idorid_dex::access::INTERFACE)
+                            != 0
+                        {
                             let msg = self.class(c).java_name();
                             return self.throw_new("Ljava/lang/InstantiationError;", &msg);
                         }
@@ -356,7 +373,10 @@ impl Vm {
                     0x23 => {
                         let n = ri!(b);
                         if n < 0 {
-                            return self.throw_new("Ljava/lang/NegativeArraySizeException;", &n.to_string());
+                            return self.throw_new(
+                                "Ljava/lang/NegativeArraySizeException;",
+                                &n.to_string(),
+                            );
                         }
                         let c = self.resolve_type(dex, w!(1))?;
                         self.maybe_gc();
@@ -390,7 +410,12 @@ impl Vm {
                                 }
                             }
                             ObjData::ArrL(x) => x.copy_from_slice(&vals[..count]),
-                            _ => return self.throw_new("Ljava/lang/InternalError;", "filled-new-array type"),
+                            _ => {
+                                return self.throw_new(
+                                    "Ljava/lang/InternalError;",
+                                    "filled-new-array type",
+                                )
+                            }
                         }
                         self.ret = arr as u64;
                         pc += 3;
@@ -402,14 +427,16 @@ impl Vm {
                         let data = &insns[off + 4..];
                         let byte = |i: usize| -> u8 {
                             let u = data[i / 2];
-                            if i % 2 == 0 {
+                            if i.is_multiple_of(2) {
                                 u as u8
                             } else {
                                 (u >> 8) as u8
                             }
                         };
                         let arr = r!(aa);
-                        let Some(obj) = self.heap.get_mut(arr) else { return self.npe("fill-array-data on null") };
+                        let Some(obj) = self.heap.get_mut(arr) else {
+                            return self.npe("fill-array-data on null");
+                        };
                         let ok = obj.data.array_len().map(|l| l >= size).unwrap_or(false);
                         if !ok {
                             return self.throw_new(AIOOBE, "fill-array-data");
@@ -427,7 +454,12 @@ impl Vm {
                             (ObjData::ArrS(x), 2) => (0..size).for_each(|i| x[i] = le(i, 2) as i16),
                             (ObjData::ArrI(x), 4) => (0..size).for_each(|i| x[i] = le(i, 4) as i32),
                             (ObjData::ArrJ(x), 8) => (0..size).for_each(|i| x[i] = le(i, 8) as i64),
-                            _ => return self.throw_new("Ljava/lang/InternalError;", "fill-array-data width"),
+                            _ => {
+                                return self.throw_new(
+                                    "Ljava/lang/InternalError;",
+                                    "fill-array-data width",
+                                )
+                            }
                         }
                         pc += 3;
                     }
@@ -445,7 +477,8 @@ impl Vm {
                     0x2b => {
                         let off = (pc as i64 + w32!(1) as i32 as i64) as usize;
                         let size = insns[off + 1] as usize;
-                        let first = ((insns[off + 2] as u32) | ((insns[off + 3] as u32) << 16)) as i32;
+                        let first =
+                            ((insns[off + 2] as u32) | ((insns[off + 3] as u32) << 16)) as i32;
                         let idx = (ri!(aa) as i64) - first as i64;
                         if idx >= 0 && (idx as usize) < size {
                             let t = off + 4 + idx as usize * 2;
@@ -459,7 +492,8 @@ impl Vm {
                         let off = (pc as i64 + w32!(1) as i32 as i64) as usize;
                         let size = insns[off + 1] as usize;
                         let key = ri!(aa);
-                        let rd32 = |p: usize| ((insns[p] as u32) | ((insns[p + 1] as u32) << 16)) as i32;
+                        let rd32 =
+                            |p: usize| ((insns[p] as u32) | ((insns[p + 1] as u32) << 16)) as i32;
                         let keys = off + 2;
                         let targets = keys + size * 2;
                         let (mut lo, mut hi) = (0usize, size);
@@ -528,7 +562,11 @@ impl Vm {
                             0x36 => x > y,
                             _ => x <= y,
                         };
-                        pc = if t { (pc as isize + insns[pc + 1] as i16 as isize) as usize } else { pc + 2 };
+                        pc = if t {
+                            (pc as isize + insns[pc + 1] as i16 as isize) as usize
+                        } else {
+                            pc + 2
+                        };
                     }
                     0x38..=0x3d => {
                         let x = ri!(aa);
@@ -540,7 +578,11 @@ impl Vm {
                             0x3c => x > 0,
                             _ => x <= 0,
                         };
-                        pc = if t { (pc as isize + insns[pc + 1] as i16 as isize) as usize } else { pc + 2 };
+                        pc = if t {
+                            (pc as isize + insns[pc + 1] as i16 as isize) as usize
+                        } else {
+                            pc + 2
+                        };
                     }
                     0x44..=0x51 => {
                         let arr = r!(w!(1) & 0xff);
@@ -555,8 +597,13 @@ impl Vm {
                                 if let Some(ac) = ac {
                                     if let ClassSrc::Array { component } = self.class(ac).src {
                                         if !self.instance_of(v, component) {
-                                            let msg = self.class(self.heap.get(v).unwrap().class).java_name();
-                                            return self.throw_new("Ljava/lang/ArrayStoreException;", &msg);
+                                            let msg = self
+                                                .class(self.heap.get(v).unwrap().class)
+                                                .java_name();
+                                            return self.throw_new(
+                                                "Ljava/lang/ArrayStoreException;",
+                                                &msg,
+                                            );
                                         }
                                     }
                                 }
@@ -571,7 +618,9 @@ impl Vm {
                         } else {
                             0
                         };
-                        let Some(obj) = self.heap.get_mut(arr) else { return self.npe("array access on null") };
+                        let Some(obj) = self.heap.get_mut(arr) else {
+                            return self.npe("array access on null");
+                        };
                         let len = obj.data.array_len().unwrap_or(0);
                         if idx < 0 || idx as usize >= len {
                             let msg = format!("length={len}; index={idx}");
@@ -593,7 +642,10 @@ impl Vm {
                             (ObjData::ArrC(x), 5, true) => x[i] = val as u16,
                             (ObjData::ArrS(x), 6, false) => out = Some(x[i] as i32 as u32 as u64),
                             (ObjData::ArrS(x), 6, true) => x[i] = val as i16,
-                            _ => return self.throw_new("Ljava/lang/VerifyError;", "array type mismatch"),
+                            _ => {
+                                return self
+                                    .throw_new("Ljava/lang/VerifyError;", "array type mismatch")
+                            }
                         }
                         if let Some(v) = out {
                             if kind == 1 {
@@ -623,7 +675,10 @@ impl Vm {
                             return self.npe("field access on null object");
                         };
                         let ObjData::Inst(fs) = &mut o.data else {
-                            return self.throw_new("Ljava/lang/IncompatibleClassChangeError;", "field on non-instance");
+                            return self.throw_new(
+                                "Ljava/lang/IncompatibleClassChangeError;",
+                                "field on non-instance",
+                            );
                         };
                         let s = fr.slot as usize;
                         if put {
@@ -773,11 +828,18 @@ impl Vm {
                             }
                             _ => {
                                 let Some(callee) = self.method_code(target) else {
-                                    let msg = format!("No implementation found for {}", self.method_desc(target));
-                                    return self.throw_new("Ljava/lang/UnsatisfiedLinkError;", &msg);
+                                    let msg = format!(
+                                        "No implementation found for {}",
+                                        self.method_desc(target)
+                                    );
+                                    return self
+                                        .throw_new("Ljava/lang/UnsatisfiedLinkError;", &msg);
                                 };
                                 if self.frames.len() >= self.max_depth {
-                                    return self.throw_new("Ljava/lang/StackOverflowError;", "stack size exceeded");
+                                    return self.throw_new(
+                                        "Ljava/lang/StackOverflowError;",
+                                        "stack size exceeded",
+                                    );
                                 }
                                 let nfp = self.sp;
                                 let regs_n = callee.regs as usize;
@@ -786,14 +848,22 @@ impl Vm {
                                 self.stack[nfp..nfp + regs_n].fill(0);
                                 let dst = nfp + regs_n - ins_n;
                                 if range {
-                                    self.stack.copy_within(fp + first..fp + first + count.min(ins_n), dst);
+                                    self.stack.copy_within(
+                                        fp + first..fp + first + count.min(ins_n),
+                                        dst,
+                                    );
                                 } else {
                                     for i in 0..count.min(ins_n) {
                                         self.stack[dst + i] = self.stack[fp + regs[i]];
                                     }
                                 }
                                 self.sp = nfp + regs_n;
-                                self.frames.push(Frame { method: target, code: callee.clone(), pc: 0, fp: nfp });
+                                self.frames.push(Frame {
+                                    method: target,
+                                    code: callee.clone(),
+                                    pc: 0,
+                                    fp: nfp,
+                                });
                                 st.code = callee;
                                 st.fp = nfp;
                                 st.pc = 0;
@@ -827,7 +897,7 @@ impl Vm {
                         }
                         pc += 1;
                     }
-                    0x90..=0xaf | 0xb0..=0xcf => {
+                    0x90..=0xcf => {
                         let two = op >= 0xb0;
                         let o = if two { op - 0xb0 } else { op - 0x90 };
                         let (d, x, y) = if two {
@@ -875,7 +945,11 @@ impl Vm {
                     0xd0..=0xd7 => {
                         let lit = insns[pc + 1] as i16 as i32;
                         let o = op - 0xd0;
-                        let v = if o == 1 { lit.wrapping_sub(ri!(b)) } else { self.int_op(o, ri!(b), lit)? };
+                        let v = if o == 1 {
+                            lit.wrapping_sub(ri!(b))
+                        } else {
+                            self.int_op(o, ri!(b), lit)?
+                        };
                         r!(a) = v as u32;
                         pc += 2;
                     }
@@ -883,7 +957,11 @@ impl Vm {
                         let src = (w!(1) & 0xff) as usize;
                         let lit = (insns[pc + 1] >> 8) as u8 as i8 as i32;
                         let o = op - 0xd8;
-                        let v = if o == 1 { lit.wrapping_sub(ri!(src)) } else { self.int_op(o, ri!(src), lit)? };
+                        let v = if o == 1 {
+                            lit.wrapping_sub(ri!(src))
+                        } else {
+                            self.int_op(o, ri!(src), lit)?
+                        };
                         r!(aa) = v as u32;
                         pc += 2;
                     }
@@ -952,7 +1030,11 @@ impl Vm {
     }
 
     fn ic_get(&self, dex: u16, midx: u32) -> (u32, MethodIdx) {
-        self.dexes[dex as usize].ic.get(midx as usize).copied().unwrap_or((0, 0))
+        self.dexes[dex as usize]
+            .ic
+            .get(midx as usize)
+            .copied()
+            .unwrap_or((0, 0))
     }
 
     fn ic_set(&mut self, dex: u16, midx: u32, cls: u32, m: MethodIdx) {
@@ -970,7 +1052,11 @@ impl Vm {
     }
 
     fn no_such_method<T>(&mut self, c: crate::ClassId, sig_id: u32) -> JResult<T> {
-        let msg = format!("No method {} in class {}", self.method_ref_name(sig_id), self.class(c).name);
+        let msg = format!(
+            "No method {} in class {}",
+            self.method_ref_name(sig_id),
+            self.class(c).name
+        );
         self.throw_new("Ljava/lang/NoSuchMethodError;", &msg)
     }
 }

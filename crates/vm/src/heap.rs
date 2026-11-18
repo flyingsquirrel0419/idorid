@@ -29,7 +29,7 @@ impl JStr {
         };
         JStr { data, hash: 0 }
     }
-    pub fn from_str(s: &str) -> JStr {
+    pub fn from_rust(s: &str) -> JStr {
         if s.is_ascii() {
             JStr {
                 data: StrData::Latin1(s.as_bytes().into()),
@@ -80,7 +80,7 @@ impl JStr {
         }
         self.hash
     }
-    pub fn eq(&self, o: &JStr) -> bool {
+    pub fn equals(&self, o: &JStr) -> bool {
         if self.len() != o.len() {
             return false;
         }

@@ -5,9 +5,9 @@ use std::rc::Rc;
 
 use idorid_dex::{access, Dex, EncodedValue, NO_INDEX};
 
+mod debuginfo;
 pub mod heap;
 mod interp;
-mod debuginfo;
 mod natives;
 mod natives_android;
 pub mod regex;
@@ -299,7 +299,11 @@ impl Vm {
         let idx = self.dexes.len() as u16;
         for i in 0..dex.class_def_count() {
             let def = dex.class_def(i).map_err(|e| e.to_string())?;
-            let name: Rc<str> = Rc::from(dex.type_descriptor(def.class_idx).map_err(|e| e.to_string())?.as_ref());
+            let name: Rc<str> = Rc::from(
+                dex.type_descriptor(def.class_idx)
+                    .map_err(|e| e.to_string())?
+                    .as_ref(),
+            );
             self.class_index.entry(name).or_insert((idx, i));
         }
         let df = DexFile {
@@ -452,23 +456,41 @@ impl Vm {
         let mut ifields = Vec::with_capacity(cd.instance_fields.len());
         for f in &cd.instance_fields {
             let fid = dex.field_id(f.field_idx).map_err(bad)?;
-            let desc: Rc<str> = Rc::from(dex.type_descriptor(fid.type_idx as u32).map_err(bad)?.as_ref());
+            let desc: Rc<str> = Rc::from(
+                dex.type_descriptor(fid.type_idx as u32)
+                    .map_err(bad)?
+                    .as_ref(),
+            );
             let fname: Rc<str> = Rc::from(dex.string(fid.name_idx).map_err(bad)?.as_ref());
             let wide = matches!(desc.as_bytes()[0], b'J' | b'D');
             if matches!(desc.as_bytes()[0], b'L' | b'[') {
                 ref_slots.push(nslots);
             }
-            ifields.push(FieldDef { name: fname, desc, slot: nslots, flags: f.access_flags });
+            ifields.push(FieldDef {
+                name: fname,
+                desc,
+                slot: nslots,
+                flags: f.access_flags,
+            });
             nslots += if wide { 2 } else { 1 };
         }
         let mut sfields = Vec::with_capacity(cd.static_fields.len());
         let mut sslots = 0u32;
         for f in &cd.static_fields {
             let fid = dex.field_id(f.field_idx).map_err(bad)?;
-            let desc: Rc<str> = Rc::from(dex.type_descriptor(fid.type_idx as u32).map_err(bad)?.as_ref());
+            let desc: Rc<str> = Rc::from(
+                dex.type_descriptor(fid.type_idx as u32)
+                    .map_err(bad)?
+                    .as_ref(),
+            );
             let fname: Rc<str> = Rc::from(dex.string(fid.name_idx).map_err(bad)?.as_ref());
             let wide = matches!(desc.as_bytes()[0], b'J' | b'D');
-            sfields.push(FieldDef { name: fname, desc, slot: sslots, flags: f.access_flags });
+            sfields.push(FieldDef {
+                name: fname,
+                desc,
+                slot: sslots,
+                flags: f.access_flags,
+            });
             sslots += if wide { 2 } else { 1 };
         }
 
@@ -512,7 +534,9 @@ impl Vm {
             methods.push(midx);
         }
         let source_file = if def.source_file_idx != NO_INDEX {
-            dex.string(def.source_file_idx).ok().map(|s| Rc::from(s.as_ref()))
+            dex.string(def.source_file_idx)
+                .ok()
+                .map(|s| Rc::from(s.as_ref()))
         } else {
             None
         };
@@ -521,7 +545,10 @@ impl Vm {
             super_,
             interfaces,
             flags: def.access_flags,
-            src: ClassSrc::Dex { dex: dex_idx, def: def_idx },
+            src: ClassSrc::Dex {
+                dex: dex_idx,
+                def: def_idx,
+            },
             state: ClassState::Loaded,
             ifields,
             sfields,
@@ -603,7 +630,9 @@ impl Vm {
             if let Ok(cd) = d.class_def(def) {
                 if let Ok(vals) = d.encoded_array(cd.static_values_off) {
                     for (i, v) in vals.into_iter().enumerate() {
-                        let Some(f) = self.class(c).sfields.get(i).cloned() else { break };
+                        let Some(f) = self.class(c).sfields.get(i).cloned() else {
+                            break;
+                        };
                         let slot = f.slot as usize;
                         let (lo, hi) = match v {
                             EncodedValue::Byte(x) => (x as i32 as u32, None),
@@ -642,13 +671,17 @@ impl Vm {
                     .heap
                     .get(cause)
                     .map(|o| o.class)
-                    .and_then(|cl| self.try_find_class("Ljava/lang/Error;").map(|e| self.is_subclass(cl, e)))
+                    .and_then(|cl| {
+                        self.try_find_class("Ljava/lang/Error;")
+                            .map(|e| self.is_subclass(cl, e))
+                    })
                     .unwrap_or(false);
                 if is_error {
                     return Err(Throw);
                 }
                 self.pins.push(cause);
-                let r = self.new_throwable_with_cause("Ljava/lang/ExceptionInInitializerError;", cause);
+                let r =
+                    self.new_throwable_with_cause("Ljava/lang/ExceptionInInitializerError;", cause);
                 self.pins.pop();
                 let e = r?;
                 self.exception = e;
@@ -692,7 +725,12 @@ impl Vm {
         self.find_in_interfaces(c, sig_id, true)
     }
 
-    fn find_in_interfaces(&self, c: ClassId, sig_id: u32, allow_abstract: bool) -> Option<MethodIdx> {
+    fn find_in_interfaces(
+        &self,
+        c: ClassId,
+        sig_id: u32,
+        allow_abstract: bool,
+    ) -> Option<MethodIdx> {
         let mut seen = Vec::new();
         let mut work = vec![c];
         let mut abstract_hit = None;
@@ -739,7 +777,8 @@ impl Vm {
             }
             cur = self.class(k).super_;
         }
-        let abstract_found = found.filter(|&m| matches!(self.methods[m as usize].kind, MKind::Abstract));
+        let abstract_found =
+            found.filter(|&m| matches!(self.methods[m as usize].kind, MKind::Abstract));
         if found.is_none() || abstract_found.is_some() {
             if let Some(m) = self.find_in_interfaces(c, sig_id, false) {
                 found = Some(m);
@@ -755,7 +794,11 @@ impl Vm {
         let mut cur = Some(c);
         while let Some(k) = cur {
             let cls = self.class(k);
-            let list = if is_static { &cls.sfields } else { &cls.ifields };
+            let list = if is_static {
+                &cls.sfields
+            } else {
+                &cls.ifields
+            };
             if let Some(f) = list.iter().find(|f| &*f.name == name) {
                 return Some((k, f.clone()));
             }
@@ -782,9 +825,13 @@ impl Vm {
             return !matches!(self.class(sub).src, ClassSrc::Primitive(_));
         }
         let sc = self.class(sup);
-        if let (ClassSrc::Array { component: a }, ClassSrc::Array { component: b }) = (&self.class(sub).src, &sc.src) {
+        if let (ClassSrc::Array { component: a }, ClassSrc::Array { component: b }) =
+            (&self.class(sub).src, &sc.src)
+        {
             let (a, b) = (*a, *b);
-            if matches!(self.class(a).src, ClassSrc::Primitive(_)) || matches!(self.class(b).src, ClassSrc::Primitive(_)) {
+            if matches!(self.class(a).src, ClassSrc::Primitive(_))
+                || matches!(self.class(b).src, ClassSrc::Primitive(_))
+            {
                 return a == b;
             }
             return self.is_subclass(a, b);
@@ -857,7 +904,12 @@ impl Vm {
         r
     }
 
-    pub fn resolve_field(&mut self, dex: u16, field_idx: u32, is_static: bool) -> JResult<FieldRef> {
+    pub fn resolve_field(
+        &mut self,
+        dex: u16,
+        field_idx: u32,
+        is_static: bool,
+    ) -> JResult<FieldRef> {
         if let Some(f) = self.dexes[dex as usize].fields[field_idx as usize] {
             return Ok(f);
         }
@@ -868,7 +920,12 @@ impl Vm {
         let name = d.string(fid.name_idx).unwrap_or_default();
         match self.find_field(c, &name, is_static) {
             Some((owner, f)) => {
-                let fr = FieldRef { owner, slot: f.slot, kind: f.desc.as_bytes()[0], is_static };
+                let fr = FieldRef {
+                    owner,
+                    slot: f.slot,
+                    kind: f.desc.as_bytes()[0],
+                    is_static,
+                };
                 self.dexes[dex as usize].fields[field_idx as usize] = Some(fr);
                 Ok(fr)
             }
@@ -891,7 +948,11 @@ impl Vm {
         let sig = d.proto_signature(mid.proto_idx as u32).unwrap_or_default();
         let sig_id = self.sig_id(&format!("{name}{sig}"));
         let direct = self.find_method_in_hierarchy(c, sig_id);
-        let mr = MethodRef { class: c, sig_id, direct };
+        let mr = MethodRef {
+            class: c,
+            sig_id,
+            direct,
+        };
         self.dexes[dex as usize].methods[method_idx as usize] = Some(mr);
         Ok(mr)
     }
@@ -910,11 +971,14 @@ impl Vm {
 
     pub fn alloc_string(&mut self, s: JStr) -> Ref {
         let c = self.string_class();
-        self.heap.alloc(Obj { class: c, data: ObjData::Str(s) })
+        self.heap.alloc(Obj {
+            class: c,
+            data: ObjData::Str(s),
+        })
     }
 
     pub fn new_string(&mut self, s: &str) -> Ref {
-        self.alloc_string(JStr::from_str(s))
+        self.alloc_string(JStr::from_rust(s))
     }
 
     pub fn new_string_utf16(&mut self, s: &[u16]) -> Ref {
@@ -926,7 +990,10 @@ impl Vm {
             return self.alloc_string(JStr::from_utf16(&[]));
         }
         let n = self.class(c).nslots as usize;
-        self.heap.alloc(Obj { class: c, data: ObjData::Inst(vec![0; n].into_boxed_slice()) })
+        self.heap.alloc(Obj {
+            class: c,
+            data: ObjData::Inst(vec![0; n].into_boxed_slice()),
+        })
     }
 
     /// Allocates an array of the given array class.
@@ -946,7 +1013,10 @@ impl Vm {
             b'J' | b'D' => ObjData::ArrJ(vec![0; len].into_boxed_slice()),
             _ => ObjData::ArrL(vec![0; len].into_boxed_slice()),
         };
-        self.heap.alloc(Obj { class: array_class, data })
+        self.heap.alloc(Obj {
+            class: array_class,
+            data,
+        })
     }
 
     pub fn new_array(&mut self, desc: &str, len: usize) -> JResult<Ref> {
@@ -960,7 +1030,10 @@ impl Vm {
             return m;
         }
         let cc = self.well_known.class.expect("java.lang.Class");
-        let r = self.heap.alloc(Obj { class: cc, data: ObjData::Mirror(c) });
+        let r = self.heap.alloc(Obj {
+            class: cc,
+            data: ObjData::Mirror(c),
+        });
         self.class_mut(c).mirror = r;
         r
     }
@@ -994,9 +1067,17 @@ impl Vm {
     }
 
     pub fn set_field(&mut self, obj: Ref, name: &str, v: u32) -> bool {
-        let Some(class) = self.heap.get(obj).map(|o| o.class) else { return false };
-        let Some((_, f)) = self.find_field(class, name, false) else { return false };
-        if let Some(Obj { data: ObjData::Inst(fs), .. }) = self.heap.get_mut(obj) {
+        let Some(class) = self.heap.get(obj).map(|o| o.class) else {
+            return false;
+        };
+        let Some((_, f)) = self.find_field(class, name, false) else {
+            return false;
+        };
+        if let Some(Obj {
+            data: ObjData::Inst(fs),
+            ..
+        }) = self.heap.get_mut(obj)
+        {
             fs[f.slot as usize] = v;
             return true;
         }
@@ -1069,7 +1150,10 @@ impl Vm {
         self.pins.push(e);
         let s = self.call_to_string(e).unwrap_or_else(|_| {
             self.exception = 0;
-            self.heap.get(e).map(|o| self.class(o.class).java_name()).unwrap_or_default()
+            self.heap
+                .get(e)
+                .map(|o| self.class(o.class).java_name())
+                .unwrap_or_default()
         });
         let mut out = s;
         // Append stack frames recorded by fillInStackTrace.
@@ -1125,7 +1209,9 @@ impl Vm {
             roots.extend(d.strings.iter().copied().filter(|&r| r != 0));
         }
         let classes = &self.classes;
-        self.heap.collect(&mut roots.into_iter(), |c| &*classes[c.0 as usize].ref_slots as *const [u32]);
+        self.heap.collect(&mut roots.into_iter(), |c| {
+            &*classes[c.0 as usize].ref_slots as *const [u32]
+        });
     }
 
     #[inline]
@@ -1152,7 +1238,11 @@ impl Vm {
 
     /// Runs `public static void main(String[])` of a class.
     pub fn run_main(&mut self, class: &str) -> Result<(), String> {
-        let desc = if class.starts_with('L') { class.to_string() } else { java_to_descriptor(class) };
+        let desc = if class.starts_with('L') {
+            class.to_string()
+        } else {
+            java_to_descriptor(class)
+        };
         let r = (|| -> JResult<()> {
             let arr = self.new_array("[Ljava/lang/String;", 0)?;
             self.pins.push(arr);

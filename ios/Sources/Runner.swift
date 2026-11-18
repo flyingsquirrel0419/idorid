@@ -9,6 +9,9 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private var closing = false
     private var opened = false
     private var previousDelegate: UINavigationControllerDelegate?
+    private var tickTimer: Timer?
+    private var presentedDialog: String?
+    private let toastLabel = UILabel()
 
     init(url: URL) { self.url = url; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -28,6 +31,16 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         banner.backgroundColor = .systemRed
         banner.numberOfLines = 0
         banner.isHidden = true
+        toastLabel.textColor = .white
+        toastLabel.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        toastLabel.textAlignment = .center
+        toastLabel.numberOfLines = 0
+        toastLabel.layer.cornerRadius = 12
+        toastLabel.clipsToBounds = true
+        toastLabel.alpha = 0
+        toastLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(toastLabel)
+        NSLayoutConstraint.activate([toastLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor), toastLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -48), toastLabel.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.85)])
         worker.open(url) { [weak self] _, error in
             guard let self = self, !self.closing else { return }
             if let error = error { self.showError(error); return }
@@ -47,6 +60,7 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         super.viewWillDisappear(animated)
         if isMovingFromParent {
             closing = true
+            tickTimer?.invalidate()
             worker.close()
             navigationController?.delegate = previousDelegate
             navigationController?.interactivePopGestureRecognizer?.isEnabled = true
@@ -84,8 +98,51 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     }
     @objc private func dismissLog() { dismiss(animated: true) }
     private func showError(_ message: String?) { banner.text = message; banner.isHidden = message == nil || message?.isEmpty == true }
+    private func scheduleTick(_ next: Any?) {
+        tickTimer?.invalidate()
+        guard let ms = (next as? NSNumber)?.doubleValue, ms >= 0 else { return }
+        tickTimer = Timer.scheduledTimer(withTimeInterval: max(0.001, ms / 1000), repeats: false) { [weak self] _ in
+            self?.send { idorid_vm_tick($0) }
+        }
+    }
+    private func showToasts(_ toasts: [String]) {
+        guard let text = toasts.last else { return }
+        toastLabel.text = "  \(text)  "
+        UIView.animate(withDuration: 0.2) { self.toastLabel.alpha = 1 }
+        UIView.animate(withDuration: 0.3, delay: 2.0, options: []) { self.toastLabel.alpha = 0 }
+    }
+    private func showDialog(_ dialog: [String: Any]?) {
+        guard let dialog = dialog else {
+            if presentedDialog != nil, presentedViewController is UIAlertController { dismiss(animated: true) }
+            presentedDialog = nil
+            return
+        }
+        let key = String(describing: dialog)
+        if key == presentedDialog { return }
+        if presentedViewController is UIAlertController { dismiss(animated: false) }
+        presentedDialog = key
+        let items = dialog["items"] as? [String] ?? []
+        let alert = UIAlertController(title: dialog["title"] as? String, message: dialog["message"] as? String, preferredStyle: items.isEmpty ? .alert : .actionSheet)
+        for (index, item) in items.enumerated() {
+            let which = Int32(-100 - index)
+            alert.addAction(UIAlertAction(title: item, style: .default) { [weak self] _ in self?.presentedDialog = nil; self?.send { idorid_vm_click($0, which) } })
+        }
+        for button in dialog["buttons"] as? [[String: Any]] ?? [] {
+            let which = (button["which"] as? NSNumber)?.int32Value ?? -1
+            let style: UIAlertAction.Style = which == -2 ? .cancel : .default
+            alert.addAction(UIAlertAction(title: button["text"] as? String, style: style) { [weak self] _ in self?.presentedDialog = nil; self?.send { idorid_vm_click($0, which) } })
+        }
+        if alert.actions.isEmpty {
+            alert.addAction(UIAlertAction(title: "OK", style: .cancel) { [weak self] _ in self?.presentedDialog = nil; self?.send { idorid_vm_back($0) } })
+        }
+        if let pop = alert.popoverPresentationController { pop.sourceView = view; pop.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1) }
+        present(alert, animated: true)
+    }
     private func render(_ object: [String: Any]) {
-        if object["finished"] as? Bool == true { closing = true; worker.close(); navigationController?.popViewController(animated: true); return }
+        if object["finished"] as? Bool == true { closing = true; tickTimer?.invalidate(); worker.close(); navigationController?.popViewController(animated: true); return }
+        scheduleTick(object["next"])
+        showToasts(object["toasts"] as? [String] ?? [])
+        showDialog(object["dialog"] as? [String: Any])
         if let title = object["title"] as? String { self.title = title }
         showError(object["error"] as? String)
         let focused = fields.first { $0.value.isFirstResponder }?.key
@@ -186,17 +243,81 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
                 }
             }
             result = frame
+        case "HorizontalScrollView":
+            let stack = UIStackView(arrangedSubviews: children.map { build($0) })
+            stack.axis = .horizontal
+            stack.isLayoutMarginsRelativeArrangement = true
+            stack.layoutMargins = padding
+            let scroll = UIScrollView()
+            scroll.addSubview(stack)
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor), stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)])
+            result = scroll
+        case "Switch", "CheckBox", "RadioButton":
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 8
+            let checked = node["checked"] as? Bool ?? false
+            let id = (node["id"] as? NSNumber)?.int32Value ?? 0
+            if type == "Switch" {
+                let toggle = UISwitch()
+                toggle.isOn = checked
+                toggle.addAction(UIAction { [weak self] _ in self?.send { idorid_vm_click($0, id) } }, for: .valueChanged)
+                let label = UILabel(); label.text = node["text"] as? String; label.numberOfLines = 0
+                row.addArrangedSubview(label); row.addArrangedSubview(toggle)
+            } else {
+                let button = UIButton(type: .system)
+                let symbol = type == "CheckBox" ? (checked ? "checkmark.square.fill" : "square") : (checked ? "largecircle.fill.circle" : "circle")
+                button.setImage(UIImage(systemName: symbol), for: .normal)
+                button.setTitle("  " + (node["text"] as? String ?? ""), for: .normal)
+                button.contentHorizontalAlignment = .leading
+                button.addAction(UIAction { [weak self] _ in self?.send { idorid_vm_click($0, id) } }, for: .touchUpInside)
+                row.addArrangedSubview(button)
+            }
+            result = row
+        case "ProgressBar":
+            if node["indeterminate"] as? Bool ?? true {
+                let spinner = UIActivityIndicatorView(style: .medium); spinner.startAnimating(); result = spinner
+            } else {
+                let bar = UIProgressView(progressViewStyle: .default)
+                let max = (node["max"] as? NSNumber)?.floatValue ?? 100
+                bar.progress = max > 0 ? ((node["progress"] as? NSNumber)?.floatValue ?? 0) / max : 0
+                result = bar
+            }
+        case "SeekBar":
+            let slider = UISlider()
+            slider.maximumValue = (node["max"] as? NSNumber)?.floatValue ?? 100
+            slider.value = (node["progress"] as? NSNumber)?.floatValue ?? 0
+            let id = (node["id"] as? NSNumber)?.int32Value ?? 0
+            slider.addAction(UIAction { [weak self, weak slider] _ in
+                let value = Int32(slider?.value ?? 0)
+                self?.send { idorid_vm_set_progress($0, id, value) }
+            }, for: [.touchUpInside, .touchUpOutside])
+            result = slider
+        case "ImageButton":
+            let button = UIButton(type: .system)
+            button.setImage(UIImage(systemName: "photo"), for: .normal)
+            if let id = (node["id"] as? NSNumber)?.int32Value { button.addAction(UIAction { [weak self] _ in self?.send { idorid_vm_click($0, id) } }, for: .touchUpInside) }
+            result = button
         case "TextView":
             let label = UILabel()
-            label.numberOfLines = 0
+            label.numberOfLines = (node["maxLines"] as? NSNumber)?.intValue ?? 0
             label.text = node["text"] as? String
-            if let size = node["textSize"] as? NSNumber { label.font = .systemFont(ofSize: CGFloat(size.doubleValue)) }
+            if let size = node["textSize"] as? NSNumber {
+                let bold = node["bold"] as? Bool ?? false
+                var font = UIFont.systemFont(ofSize: CGFloat(size.doubleValue), weight: bold ? .bold : .regular)
+                if node["italic"] as? Bool ?? false, let d = font.fontDescriptor.withSymbolicTraits(bold ? [.traitItalic, .traitBold] : .traitItalic) { font = UIFont(descriptor: d, size: 0) }
+                label.font = font
+            }
             label.textColor = color(node["color"]) ?? .label
             switch node["gravity"] as? String { case "center": label.textAlignment = .center; case "right": label.textAlignment = .right; default: label.textAlignment = .left }
             result = label
         case "Button":
             let button = UIButton(type: .system)
             button.setTitle(node["text"] as? String, for: .normal)
+            if let size = node["textSize"] as? NSNumber { button.titleLabel?.font = .systemFont(ofSize: CGFloat(size.doubleValue), weight: node["bold"] as? Bool ?? false ? .bold : .medium) }
+            if let c = color(node["color"]) { button.setTitleColor(c, for: .normal) }
+            button.isEnabled = node["enabled"] as? Bool ?? true
             if let id = (node["id"] as? NSNumber)?.int32Value { button.addAction(UIAction { [weak self] _ in self?.send { idorid_vm_click($0, id) } }, for: .touchUpInside) }
             result = button
         case "EditText":
@@ -204,8 +325,13 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             field.borderStyle = .roundedRect
             field.text = node["text"] as? String
             field.placeholder = node["hint"] as? String
+            let inputType = (node["inputType"] as? NSNumber)?.intValue ?? 1
+            field.isSecureTextEntry = (inputType & 0xfff) == 0x81 || (inputType & 0xfff) == 0x12 || (inputType & 0xfff) == 0xe1
+            switch inputType & 0xf { case 2: field.keyboardType = (inputType & 0x2000) != 0 ? .decimalPad : .numberPad; case 3: field.keyboardType = .phonePad; default: break }
+            if (inputType & 0xff0) == 0x20 { field.keyboardType = .emailAddress; field.autocapitalizationType = .none }
             if let id = (node["id"] as? NSNumber)?.int32Value {
                 fields[id] = field
+                field.addAction(UIAction { [weak self] _ in self?.send { idorid_vm_editor_action($0, id) } }, for: .editingDidEndOnExit)
                 field.addAction(UIAction { [weak self, weak field] _ in
                     let text = field?.text ?? ""
                     self?.send { vm in text.withCString { idorid_vm_set_text(vm, id, $0) } }
@@ -230,7 +356,37 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             outer = wrapper
         }
         if let background = color(node["bg"]) { outer.backgroundColor = background }
+        if let radius = node["radius"] as? NSNumber { outer.layer.cornerRadius = CGFloat(radius.doubleValue); outer.clipsToBounds = true }
+        if let alpha = node["alpha"] as? NSNumber { outer.alpha = CGFloat(alpha.doubleValue) }
         outer.isHidden = (node["visible"] as? Bool) == false
+        if node["visible"] as? String == "invisible" { outer.alpha = 0 }
+        if node["clickable"] as? Bool == true, !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar"].contains(type), let id = (node["id"] as? NSNumber)?.int32Value {
+            outer.isUserInteractionEnabled = true
+            outer.addGestureRecognizer(ClosureTap { [weak self] in self?.send { idorid_vm_click($0, id) } })
+        }
+        if let m = node["margin"] as? [NSNumber], m.count == 4, m.contains(where: { $0.doubleValue != 0 }) {
+            let wrapper = UIView()
+            wrapper.addSubview(outer)
+            outer.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                outer.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: CGFloat(m[0].doubleValue)),
+                outer.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: CGFloat(m[1].doubleValue)),
+                outer.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -CGFloat(m[2].doubleValue)),
+                outer.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -CGFloat(m[3].doubleValue))
+            ])
+            return wrapper
+        }
         return outer
     }
+}
+
+/// Tap recognizer that calls a closure.
+final class ClosureTap: UITapGestureRecognizer {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+        super.init(target: nil, action: nil)
+        addTarget(self, action: #selector(fire))
+    }
+    @objc private func fire() { action() }
 }

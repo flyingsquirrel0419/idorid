@@ -74,7 +74,11 @@ impl<'a> Parser<'a> {
         while self.eat('|') {
             alts.push(self.concat()?);
         }
-        Ok(if alts.len() == 1 { alts.pop().unwrap() } else { Node::Alt(alts) })
+        Ok(if alts.len() == 1 {
+            alts.pop().unwrap()
+        } else {
+            Node::Alt(alts)
+        })
     }
     fn concat(&mut self) -> Result<Node, String> {
         let mut items = Vec::new();
@@ -109,7 +113,11 @@ impl<'a> Parser<'a> {
                     self.i = save;
                     return Ok(atom);
                 };
-                let hi = if self.eat(',') { self.number().unwrap_or(u32::MAX) } else { lo };
+                let hi = if self.eat(',') {
+                    self.number().unwrap_or(u32::MAX)
+                } else {
+                    lo
+                };
                 if !self.eat('}') {
                     return Err("bad repetition".into());
                 }
@@ -151,7 +159,9 @@ impl<'a> Parser<'a> {
                 // \Q...\E literal block
                 let mut lits = Vec::new();
                 while self.i < self.p.len() {
-                    if self.p[self.i] == b'\\' as u16 && self.p.get(self.i + 1) == Some(&(b'E' as u16)) {
+                    if self.p[self.i] == b'\\' as u16
+                        && self.p.get(self.i + 1) == Some(&(b'E' as u16))
+                    {
                         self.i += 2;
                         break;
                     }
@@ -191,7 +201,9 @@ impl<'a> Parser<'a> {
                 let mut items = Vec::new();
                 let mut first = true;
                 loop {
-                    let Some(c) = self.peek() else { return Err("unclosed class".into()) };
+                    let Some(c) = self.peek() else {
+                        return Err("unclosed class".into());
+                    };
                     if c == b']' as u16 && !first {
                         self.i += 1;
                         break;
@@ -210,7 +222,9 @@ impl<'a> Parser<'a> {
                     } else {
                         c
                     };
-                    if self.peek() == Some(b'-' as u16) && self.p.get(self.i + 1).is_some_and(|&n| n != b']' as u16) {
+                    if self.peek() == Some(b'-' as u16)
+                        && self.p.get(self.i + 1).is_some_and(|&n| n != b']' as u16)
+                    {
                         self.i += 1;
                         let mut hi = self.peek().unwrap();
                         self.i += 1;
@@ -248,18 +262,28 @@ pub type Caps = Vec<Option<(usize, usize)>>;
 
 impl Regex {
     pub fn new(pattern: &[u16]) -> Result<Regex, String> {
-        let mut p = Parser { p: pattern, i: 0, groups: 0 };
+        let mut p = Parser {
+            p: pattern,
+            i: 0,
+            groups: 0,
+        };
         let node = p.alt()?;
         if p.i != pattern.len() {
             return Err("unmatched )".into());
         }
-        Ok(Regex { node, groups: p.groups })
+        Ok(Regex {
+            node,
+            groups: p.groups,
+        })
     }
 
     /// If the pattern is a plain literal, returns it (fast path for split).
     pub fn literal(pattern: &[u16]) -> Option<Vec<u16>> {
         let meta = b".$|()[{^?*+\\";
-        if pattern.iter().all(|&c| c >= 128 || !meta.contains(&(c as u8))) {
+        if pattern
+            .iter()
+            .all(|&c| c >= 128 || !meta.contains(&(c as u8)))
+        {
             return Some(pattern.to_vec());
         }
         if pattern.len() == 2 && pattern[0] == b'\\' as u16 {
@@ -282,7 +306,14 @@ impl Regex {
     pub fn full_match(&self, s: &[u16]) -> bool {
         let mut caps: Caps = vec![None; self.groups + 1];
         let len = s.len();
-        m(&self.node, s, 0, &mut caps, &mut |e, _| if e == len { Some(e) } else { None }).is_some()
+        m(&self.node, s, 0, &mut caps, &mut |e, _| {
+            if e == len {
+                Some(e)
+            } else {
+                None
+            }
+        })
+        .is_some()
     }
 
     /// Finds the leftmost match at or after `from`.
@@ -358,12 +389,24 @@ fn m(n: &Node, s: &[u16], i: usize, caps: &mut Caps, k: &mut Cont<'_>) -> Option
 fn concat(items: &[Node], s: &[u16], i: usize, caps: &mut Caps, k: &mut Cont<'_>) -> Option<usize> {
     match items.split_first() {
         None => k(i, caps),
-        Some((first, rest)) => m(first, s, i, caps, &mut |e, caps: &mut Caps| concat(rest, s, e, caps, k)),
+        Some((first, rest)) => m(first, s, i, caps, &mut |e, caps: &mut Caps| {
+            concat(rest, s, e, caps, k)
+        }),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn rep(n: &Node, min: u32, max: u32, lazy: bool, s: &[u16], i: usize, count: u32, caps: &mut Caps, k: &mut Cont<'_>) -> Option<usize> {
+fn rep(
+    n: &Node,
+    min: u32,
+    max: u32,
+    lazy: bool,
+    s: &[u16],
+    i: usize,
+    count: u32,
+    caps: &mut Caps,
+    k: &mut Cont<'_>,
+) -> Option<usize> {
     let try_more = |caps: &mut Caps, k: &mut Cont<'_>| -> Option<usize> {
         if count >= max {
             return None;
@@ -397,14 +440,25 @@ pub fn split(s: &[u16], pattern: &[u16], limit: i32) -> Result<Vec<Vec<u16>>, St
     let mut last = 0usize;
     let mut pos = 0usize;
     let lit = Regex::literal(pattern);
-    let re = if lit.is_none() { Some(Regex::new(pattern)?) } else { None };
+    let re = if lit.is_none() {
+        Some(Regex::new(pattern)?)
+    } else {
+        None
+    };
     while limit <= 0 || (parts.len() as i32) < limit - 1 {
         let found = match (&lit, &re) {
             (Some(l), _) => {
                 if l.is_empty() {
-                    if pos < s.len() { Some((pos, pos)) } else { None }
+                    if pos < s.len() {
+                        Some((pos, pos))
+                    } else {
+                        None
+                    }
                 } else {
-                    s[pos..].windows(l.len()).position(|w| w == &l[..]).map(|p| (pos + p, pos + p + l.len()))
+                    s[pos..]
+                        .windows(l.len())
+                        .position(|w| w == &l[..])
+                        .map(|p| (pos + p, pos + p + l.len()))
                 }
             }
             (_, Some(r)) => r.find(s, pos).map(|(a, b, _)| (a, b)),
@@ -448,7 +502,9 @@ pub fn replace(s: &[u16], pattern: &[u16], repl: &[u16], all: bool) -> Result<Ve
     let mut pos = 0;
     let mut last = 0;
     while pos <= s.len() {
-        let Some((a, b, caps)) = re.find(s, pos) else { break };
+        let Some((a, b, caps)) = re.find(s, pos) else {
+            break;
+        };
         out.extend_from_slice(&s[last..a]);
         let mut i = 0;
         while i < repl.len() {
@@ -456,7 +512,10 @@ pub fn replace(s: &[u16], pattern: &[u16], repl: &[u16], all: bool) -> Result<Ve
             if c == b'\\' as u16 && i + 1 < repl.len() {
                 out.push(repl[i + 1]);
                 i += 2;
-            } else if c == b'$' as u16 && i + 1 < repl.len() && (b'0' as u16..=b'9' as u16).contains(&repl[i + 1]) {
+            } else if c == b'$' as u16
+                && i + 1 < repl.len()
+                && (b'0' as u16..=b'9' as u16).contains(&repl[i + 1])
+            {
                 let g = (repl[i + 1] - b'0' as u16) as usize;
                 if let Some(Some((x, y))) = caps.get(g) {
                     out.extend_from_slice(&s[*x..*y]);
@@ -498,9 +557,18 @@ mod tests {
     }
     #[test]
     fn splits() {
-        assert_eq!(st(&split(&u("a,b,,c,,"), &u(","), 0).unwrap()), ["a", "b", "", "c"]);
-        assert_eq!(st(&split(&u("a  b c"), &u("\\s+"), 0).unwrap()), ["a", "b", "c"]);
-        assert_eq!(st(&split(&u("a1b22c"), &u("\\d+"), 0).unwrap()), ["a", "b", "c"]);
+        assert_eq!(
+            st(&split(&u("a,b,,c,,"), &u(","), 0).unwrap()),
+            ["a", "b", "", "c"]
+        );
+        assert_eq!(
+            st(&split(&u("a  b c"), &u("\\s+"), 0).unwrap()),
+            ["a", "b", "c"]
+        );
+        assert_eq!(
+            st(&split(&u("a1b22c"), &u("\\d+"), 0).unwrap()),
+            ["a", "b", "c"]
+        );
         assert_eq!(st(&split(&u("a|b"), &u("\\|"), 0).unwrap()), ["a", "b"]);
         assert_eq!(st(&split(&u("abc"), &u(""), 0).unwrap()), ["a", "b", "c"]);
         assert_eq!(st(&split(&u("a,b,c"), &u(","), 2).unwrap()), ["a", "b,c"]);
@@ -512,7 +580,9 @@ mod tests {
         assert!(r.full_match(&u("me@site.com")));
         assert!(!r.full_match(&u("me@site.net")));
         assert!(Regex::new(&u("a.*?b")).unwrap().full_match(&u("axxb")));
-        assert!(Regex::new(&u("\\d{3}-\\d{4}")).unwrap().full_match(&u("555-1234")));
+        assert!(Regex::new(&u("\\d{3}-\\d{4}"))
+            .unwrap()
+            .full_match(&u("555-1234")));
     }
     #[test]
     fn replacing() {

@@ -7,12 +7,16 @@ use crate::{MKind, MethodIdx, Vm};
 /// Source line for `pc` in method `m`, or -1.
 pub fn line_for(vm: &Vm, m: MethodIdx, pc: u32) -> i32 {
     let meth = &vm.methods[m as usize];
-    let MKind::Code(code) = &meth.kind else { return -1 };
+    let MKind::Code(code) = &meth.kind else {
+        return -1;
+    };
     if code.debug_info_off == 0 {
         return -1;
     }
     let bytes = &vm.dexes[code.dex as usize].bytes;
-    let Ok(_dex) = Dex::parse(bytes) else { return -1 };
+    let Ok(_dex) = Dex::parse(bytes) else {
+        return -1;
+    };
     decode(bytes, code.debug_info_off as usize, pc).unwrap_or(-1)
 }
 

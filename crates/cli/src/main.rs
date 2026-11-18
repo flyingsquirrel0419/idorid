@@ -31,7 +31,9 @@ fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let stats = args.iter().any(|a| a == "--stats");
     args.retain(|a| a != "--stats");
-    let Some(cmd) = args.first().cloned() else { return usage() };
+    let Some(cmd) = args.first().cloned() else {
+        return usage();
+    };
     match cmd.as_str() {
         "main" if args.len() >= 3 => {
             let t0 = std::time::Instant::now();
@@ -89,7 +91,8 @@ fn main() -> ExitCode {
                             println!(
                                 "  {}{}",
                                 dex.string(mid.name_idx).unwrap_or_default(),
-                                dex.proto_signature(mid.proto_idx as u32).unwrap_or_default()
+                                dex.proto_signature(mid.proto_idx as u32)
+                                    .unwrap_or_default()
                             );
                         }
                     }
@@ -117,7 +120,9 @@ fn render(v: &serde_json::Value, depth: usize, out: &mut String) {
     if v.get("visible").is_some() {
         line.push_str(&format!(" visible={}", v["visible"]));
     }
-    if v.get("clickable").is_some() && !matches!(ty, "Button" | "CheckBox" | "Switch" | "RadioButton") {
+    if v.get("clickable").is_some()
+        && !matches!(ty, "Button" | "CheckBox" | "Switch" | "RadioButton")
+    {
         line.push_str(" [clickable]");
     }
     out.push_str(&line);
@@ -158,10 +163,18 @@ fn show(json: &str, raw: bool) {
         }
     }
     if let Some(d) = v.get("dialog") {
-        out.push_str(&format!("[dialog] {} — {}\n", d["title"].as_str().unwrap_or(""), d["message"].as_str().unwrap_or("")));
+        out.push_str(&format!(
+            "[dialog] {} — {}\n",
+            d["title"].as_str().unwrap_or(""),
+            d["message"].as_str().unwrap_or("")
+        ));
         if let Some(b) = d["buttons"].as_array() {
             for x in b {
-                out.push_str(&format!("  button {} {:?}\n", x["which"], x["text"].as_str().unwrap_or("")));
+                out.push_str(&format!(
+                    "  button {} {:?}\n",
+                    x["which"],
+                    x["text"].as_str().unwrap_or("")
+                ));
             }
         }
     }
@@ -198,12 +211,16 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
             app.vm.heap.live_bytes / 1024
         );
     }
-    let mut lines: Box<dyn Iterator<Item = String>> = if script.is_empty() {
+    let lines: Box<dyn Iterator<Item = String>> = if script.is_empty() {
         Box::new(std::io::stdin().lines().map_while(Result::ok))
     } else {
-        Box::new(script.iter().flat_map(|s| s.split(';').map(|x| x.trim().to_string()).collect::<Vec<_>>()))
+        Box::new(script.iter().flat_map(|s| {
+            s.split(';')
+                .map(|x| x.trim().to_string())
+                .collect::<Vec<_>>()
+        }))
     };
-    while let Some(line) = lines.next() {
+    for line in lines {
         let mut parts = line.splitn(3, ' ');
         let cmd = parts.next().unwrap_or("");
         let a1 = parts.next().unwrap_or("");
@@ -234,7 +251,12 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         show(&out, raw);
     }
     if stats {
-        eprintln!("[idorid] total {:?}, {} instructions, {} GCs", t0.elapsed(), app.vm.instructions, app.vm.heap.collections);
+        eprintln!(
+            "[idorid] total {:?}, {} instructions, {} GCs",
+            t0.elapsed(),
+            app.vm.instructions,
+            app.vm.heap.collections
+        );
     }
     ExitCode::SUCCESS
 }

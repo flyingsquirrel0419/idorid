@@ -41,10 +41,28 @@ fn dimen_px(value: f32, u: DimensionUnit) -> f32 {
 
 /// Attributes whose references are identities, not values to resolve.
 const REF_ATTRS: &[&str] = &[
-    "id", "layout", "src", "srcCompat", "style", "theme", "layout_below", "layout_above", "layout_toLeftOf",
-    "layout_toRightOf", "layout_toStartOf", "layout_toEndOf", "layout_alignTop", "layout_alignBottom",
-    "layout_alignLeft", "layout_alignRight", "layout_alignStart", "layout_alignEnd", "labelFor", "nextFocusDown",
-    "entries", "menu",
+    "id",
+    "layout",
+    "src",
+    "srcCompat",
+    "style",
+    "theme",
+    "layout_below",
+    "layout_above",
+    "layout_toLeftOf",
+    "layout_toRightOf",
+    "layout_toStartOf",
+    "layout_toEndOf",
+    "layout_alignTop",
+    "layout_alignBottom",
+    "layout_alignLeft",
+    "layout_alignRight",
+    "layout_alignStart",
+    "layout_alignEnd",
+    "labelFor",
+    "nextFocusDown",
+    "entries",
+    "menu",
 ];
 
 impl ApkResources {
@@ -64,12 +82,16 @@ impl ApkResources {
         let rv = self.resolve(v);
         Some(match rv {
             ResValue::Null | ResValue::Attribute(_) => return None,
-            ResValue::String(s) => format!("s:{}", s.replace(['\u{1}', '\u{2}', '\u{3}', '\u{4}'], "")),
+            ResValue::String(s) => {
+                format!("s:{}", s.replace(['\u{1}', '\u{2}', '\u{3}', '\u{4}'], ""))
+            }
             ResValue::Reference(id) => format!("r:{}", id as i32),
             ResValue::Int(i) => format!("i:{i}"),
             ResValue::Hex(h) => format!("i:{}", h as i32),
             ResValue::Bool(b) => format!("b:{b}"),
-            ResValue::Dimension { value, unit: u } => format!("d:{}{}", dimen_px(value, u), unit(u)),
+            ResValue::Dimension { value, unit: u } => {
+                format!("d:{}{}", dimen_px(value, u), unit(u))
+            }
             ResValue::Fraction { value, .. } => format!("f:{value}"),
             ResValue::Color(c) => format!("c:{}", c as i32),
             ResValue::Float(f) => format!("f:{f}"),
@@ -117,7 +139,11 @@ impl ResourceProvider for ApkResources {
     }
     fn name(&self, id: u32) -> Option<String> {
         let n = self.res.as_ref()?.name(id)?;
-        Some(if n.contains(':') { n.to_string() } else { format!("{}:{}", self.package, n) })
+        Some(if n.contains(':') {
+            n.to_string()
+        } else {
+            format!("{}:{}", self.package, n)
+        })
     }
     fn int(&self, id: u32, _kind: i32) -> Option<i32> {
         match self.resolve(&ResValue::Reference(id)) {
@@ -160,7 +186,11 @@ impl App {
         let apk = Rc::new(Apk::open(bytes).map_err(|e| format!("bad apk: {e:?}"))?);
         let manifest = apk.manifest().map_err(|e| format!("bad manifest: {e:?}"))?;
         let res = apk.resources().ok();
-        let provider = ApkResources { apk: apk.clone(), res, package: manifest.package.clone() };
+        let provider = ApkResources {
+            apk: apk.clone(),
+            res,
+            package: manifest.package.clone(),
+        };
         let label = match &manifest.label {
             Some(ResValue::String(s)) => s.clone(),
             Some(v) => match provider.resolve(v) {
@@ -195,7 +225,13 @@ impl App {
         if echo {
             eprintln!("[idorid] loaded {} in {:?}", manifest.package, t0.elapsed());
         }
-        Ok(App { vm, manifest, label, log, launched: false })
+        Ok(App {
+            vm,
+            manifest,
+            label,
+            log,
+            launched: false,
+        })
     }
 
     fn call(&mut self, name_sig: &str, args: &[CallArg]) -> String {
@@ -214,10 +250,15 @@ impl App {
                 },
             }
         }
-        let r = self.vm.call_static("Landroid/app/ActivityThread;", name_sig, &raw);
+        let r = self
+            .vm
+            .call_static("Landroid/app/ActivityThread;", name_sig, &raw);
         self.vm.pins.truncate(pins);
         match r {
-            Ok(v) => self.vm.rust_string(v as u32).unwrap_or_else(|| error_json("no UI")),
+            Ok(v) => self
+                .vm
+                .rust_string(v as u32)
+                .unwrap_or_else(|| error_json("no UI")),
             Err(Throw) => {
                 let e = self.vm.describe_exception();
                 self.log.borrow_mut().push_str(&format!("E/idorid: {e}\n"));
@@ -246,13 +287,19 @@ impl App {
         self.call("longClick(I)Ljava/lang/String;", &[CallArg::Int(id)])
     }
     pub fn set_text(&mut self, id: i32, text: &str) -> String {
-        self.call("setText(ILjava/lang/String;)Ljava/lang/String;", &[CallArg::Int(id), CallArg::Str(Some(text.into()))])
+        self.call(
+            "setText(ILjava/lang/String;)Ljava/lang/String;",
+            &[CallArg::Int(id), CallArg::Str(Some(text.into()))],
+        )
     }
     pub fn editor_action(&mut self, id: i32) -> String {
         self.call("editorAction(I)Ljava/lang/String;", &[CallArg::Int(id)])
     }
     pub fn set_progress(&mut self, id: i32, p: i32) -> String {
-        self.call("setProgress(II)Ljava/lang/String;", &[CallArg::Int(id), CallArg::Int(p)])
+        self.call(
+            "setProgress(II)Ljava/lang/String;",
+            &[CallArg::Int(id), CallArg::Int(p)],
+        )
     }
     pub fn back(&mut self) -> String {
         self.call("back()Ljava/lang/String;", &[])
@@ -271,7 +318,11 @@ impl App {
             "{{\"package\":{},\"label\":{},\"activity\":{}}}",
             json_str(&self.manifest.package),
             json_str(&self.label),
-            self.manifest.main_activity.as_deref().map(json_str).unwrap_or_else(|| "null".into())
+            self.manifest
+                .main_activity
+                .as_deref()
+                .map(json_str)
+                .unwrap_or_else(|| "null".into())
         )
     }
 }
@@ -300,7 +351,10 @@ pub fn json_str(s: &str) -> String {
 }
 
 fn error_json(msg: &str) -> String {
-    format!("{{\"title\":\"idorid\",\"finished\":false,\"error\":{},\"next\":-1}}", json_str(msg))
+    format!(
+        "{{\"title\":\"idorid\",\"finished\":false,\"error\":{},\"next\":-1}}",
+        json_str(msg)
+    )
 }
 
 // ----------------------------------------------------------------------
@@ -311,7 +365,9 @@ fn error_json(msg: &str) -> String {
 pub struct IdoridVm(App);
 
 fn to_c(s: String) -> *mut c_char {
-    CString::new(s.replace('\0', "")).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    CString::new(s.replace('\0', ""))
+        .map(|c| c.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 fn guard(f: impl FnOnce() -> String) -> *mut c_char {
@@ -331,7 +387,11 @@ fn guard(f: impl FnOnce() -> String) -> *mut c_char {
 /// # Safety
 /// `apk` must point to `len` readable bytes; `err` may be null.
 #[no_mangle]
-pub unsafe extern "C" fn idorid_vm_new(apk: *const u8, len: usize, err: *mut *mut c_char) -> *mut IdoridVm {
+pub unsafe extern "C" fn idorid_vm_new(
+    apk: *const u8,
+    len: usize,
+    err: *mut *mut c_char,
+) -> *mut IdoridVm {
     if apk.is_null() {
         return std::ptr::null_mut();
     }
