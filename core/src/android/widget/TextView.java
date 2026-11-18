@@ -58,6 +58,7 @@ public class TextView extends View {
         if (watchers != null) for (TextWatcher w : new ArrayList<TextWatcher>(watchers)) w.beforeTextChanged(old, 0, old.length(), t == null ? 0 : t.length());
         text = t == null ? "" : t;
         onSetText();
+        onTextChanged(text, 0, old.length(), text.length());
         if (watchers != null) {
             for (TextWatcher w : new ArrayList<TextWatcher>(watchers)) w.onTextChanged(text, 0, old.length(), text.length());
             Editable e = this instanceof EditText ? ((EditText) this).getText() : new SpannableStringBuilder(text);
@@ -88,30 +89,30 @@ public class TextView extends View {
     public void setAllCaps(boolean b) { allCaps = b; requestLayout(); }
     public void setMaxLines(int n) { maxLines = n; requestLayout(); }
     public void setLines(int n) { maxLines = n; requestLayout(); }
-    public void setMinLines(int n) {}
+    public void setMinLines(int n) { minLines=n; requestLayout(); }
     public void setSingleLine() { maxLines = 1; requestLayout(); }
     public void setSingleLine(boolean b) { maxLines = b ? 1 : -1; requestLayout(); }
     public void setEllipsize(android.text.TextUtils.TruncateAt w) {}
-    public void setLineSpacing(float add, float mult) {}
-    public void setLetterSpacing(float s) {}
-    public void setIncludeFontPadding(boolean b) {}
+    public void setLineSpacing(float add, float mult) { spacingExtra=add; spacingMult=mult; requestLayout(); }
+    public void setLetterSpacing(float s) { letterSpacing=s; requestLayout(); }
+    public void setIncludeFontPadding(boolean b) { includeFontPadding=b; requestLayout(); }
     public void setMovementMethod(android.text.method.MovementMethod m) {}
     public void setTransformationMethod(android.text.method.TransformationMethod m) {
         if (m instanceof android.text.method.PasswordTransformationMethod) inputType = 0x81; else if (inputType == 0x81) inputType = 1;
     }
     public void setInputType(int t) { inputType = t; }
     public int getInputType() { return inputType; }
-    public void setImeOptions(int o) {}
+    public void setImeOptions(int o) { imeOptions=o; }
     public void setOnEditorActionListener(OnEditorActionListener l) { editorListener = l; }
     public void setError(CharSequence e) { error = e; }
     public CharSequence getError() { return error; }
-    public void setCompoundDrawablesWithIntrinsicBounds(int l, int t, int r, int b) {}
-    public void setCompoundDrawables(android.graphics.drawable.Drawable l, android.graphics.drawable.Drawable t, android.graphics.drawable.Drawable r, android.graphics.drawable.Drawable b) {}
-    public void setCompoundDrawablePadding(int p) {}
-    public void setHorizontallyScrolling(boolean b) {}
+    public void setCompoundDrawablesWithIntrinsicBounds(int l, int t, int r, int b) { setCompoundDrawables(drawable(l),drawable(t),drawable(r),drawable(b)); }
+    public void setCompoundDrawables(android.graphics.drawable.Drawable l, android.graphics.drawable.Drawable t, android.graphics.drawable.Drawable r, android.graphics.drawable.Drawable b) { compound=new android.graphics.drawable.Drawable[]{l,t,r,b}; requestLayout(); }
+    public void setCompoundDrawablePadding(int p) { compoundPadding=p; requestLayout(); }
+    public void setHorizontallyScrolling(boolean b) { horizontallyScrolling=b; }
     public void setTextIsSelectable(boolean b) {}
     public void setCursorVisible(boolean b) {}
-    public void setSelection(int i) {}
+    public void setSelection(int i) { selectionStart=selectionEnd=i; onSelectionChanged(i,i); }
     public void addTextChangedListener(TextWatcher w) { if (watchers == null) watchers = new ArrayList<TextWatcher>(); watchers.add(w); }
     public void removeTextChangedListener(TextWatcher w) { if (watchers != null) watchers.remove(w); }
     /** idorid: user typed in the host field. */
@@ -162,7 +163,7 @@ public class TextView extends View {
     /** idorid: room for a compound button / switch beside the text. */
     int idoridExtraWidth() { return 0; }
     int idoridExtraHeight() { return 0; }
-    public int getLineHeight() { return Math.round(textSize * 1.17f); }
+    public int getLineHeight() { return lineHeight>0 ? lineHeight : Math.round(textSize * 1.17f); }
     public int getLineCount() { return Math.max(1, android.view.VMText.heightOf(android.view.VMText.measure(displayText().toString(), textSize, textFlags(), Math.max(1, getWidth() - getPaddingLeft() - getPaddingRight()))) / Math.max(1, getLineHeight())); }
     public int getBaseline() { return getPaddingTop() + Math.round(textSize * 0.93f); }
     public int getMaxLines() { return maxLines; }
@@ -182,4 +183,38 @@ public class TextView extends View {
         if (inputType != 0) { Json.key(sb, "inputType"); sb.append(inputType); }
         if (error != null) { Json.key(sb, "errorText"); Json.str(sb, error); }
     }
+
+    private android.graphics.drawable.Drawable[] compound=new android.graphics.drawable.Drawable[4];
+    private android.content.res.ColorStateList compoundTint;
+    private android.graphics.PorterDuff.Mode compoundTintMode;
+    private int compoundPadding, minLines=1, breakStrategy, hyphenation, imeOptions, lineHeight, selectionStart=-1, selectionEnd=-1;
+    private float spacingExtra, spacingMult=1, letterSpacing;
+    private boolean includeFontPadding=true, horizontallyScrolling;
+    private java.util.Locale textLocale=java.util.Locale.getDefault();
+    private android.graphics.drawable.Drawable drawable(int id) { return id==0?null:getResources().getDrawable(id); }
+    public android.graphics.drawable.Drawable[] getCompoundDrawables() { return compound.clone(); }
+    public android.graphics.drawable.Drawable[] getCompoundDrawablesRelative() { return getCompoundDrawables(); }
+    public void setCompoundDrawablesWithIntrinsicBounds(android.graphics.drawable.Drawable l,android.graphics.drawable.Drawable t,android.graphics.drawable.Drawable r,android.graphics.drawable.Drawable b) { setCompoundDrawables(l,t,r,b); }
+    public void setCompoundDrawablesRelative(android.graphics.drawable.Drawable l,android.graphics.drawable.Drawable t,android.graphics.drawable.Drawable r,android.graphics.drawable.Drawable b) { setCompoundDrawables(l,t,r,b); }
+    public void setCompoundDrawablesRelativeWithIntrinsicBounds(android.graphics.drawable.Drawable l,android.graphics.drawable.Drawable t,android.graphics.drawable.Drawable r,android.graphics.drawable.Drawable b) { setCompoundDrawables(l,t,r,b); }
+    public void setCompoundDrawablesRelativeWithIntrinsicBounds(int l,int t,int r,int b) { setCompoundDrawablesWithIntrinsicBounds(l,t,r,b); }
+    public void setCompoundDrawableTintList(android.content.res.ColorStateList c) { compoundTint=c; } public android.content.res.ColorStateList getCompoundDrawableTintList() { return compoundTint; }
+    public void setCompoundDrawableTintMode(android.graphics.PorterDuff.Mode m) { compoundTintMode=m; } public android.graphics.PorterDuff.Mode getCompoundDrawableTintMode() { return compoundTintMode; }
+    public int getCompoundDrawablePadding() { return compoundPadding; } public int getCompoundPaddingLeft() { return getPaddingLeft(); } public int getCompoundPaddingRight() { return getPaddingRight(); } public int getCompoundPaddingTop() { return getPaddingTop(); } public int getCompoundPaddingBottom() { return getPaddingBottom(); } public int getTotalPaddingLeft() { return getCompoundPaddingLeft(); } public int getTotalPaddingRight() { return getCompoundPaddingRight(); }
+    public void setTextAppearance(int id) {} public void setTextAppearance(Context c,int id) {}
+    public void setLinkTextColor(int color) {} public void setLinkTextColor(android.content.res.ColorStateList color) {}
+    public void setShadowLayer(float radius,float dx,float dy,int color) {} public void setHighlightColor(int color) {}
+    public void setAutoSizeTextTypeWithDefaults(int type) {} public void setAutoSizeTextTypeUniformWithConfiguration(int min,int max,int step,int unit) {} public void setAutoSizeTextTypeUniformWithPresetSizes(int[] sizes,int unit) {} public int getAutoSizeTextType() { return 0; } public int getAutoSizeMinTextSize() { return -1; } public int getAutoSizeMaxTextSize() { return -1; } public int getAutoSizeStepGranularity() { return -1; } public int[] getAutoSizeTextAvailableSizes() { return new int[0]; }
+    public void setBreakStrategy(int v) { breakStrategy=v; } public int getBreakStrategy() { return breakStrategy; } public void setHyphenationFrequency(int v) { hyphenation=v; } public int getHyphenationFrequency() { return hyphenation; }
+    public void setRawInputType(int v) { inputType=v; } public int getImeOptions() { return imeOptions; } public void setImeActionLabel(CharSequence label,int id) {}
+    public void setTextLocale(java.util.Locale l) { textLocale=l; } public java.util.Locale getTextLocale() { return textLocale; } public void setFontFeatureSettings(String s) {} public boolean setFontVariationSettings(String s) { return false; }
+    public void setLineHeight(int h) { lineHeight=h; requestLayout(); } public void setLineHeight(int unit,float h) { setLineHeight((int)h); }
+    public void setFirstBaselineToTopHeight(int h) { if (h>getBaseline()) setPadding(getPaddingLeft(),getPaddingTop()+h-getBaseline(),getPaddingRight(),getPaddingBottom()); }
+    public void setLastBaselineToBottomHeight(int h) { if(h>0) setPadding(getPaddingLeft(),getPaddingTop(),getPaddingRight(),h); }
+    public int getMinLines() { return minLines; } public float getLineSpacingExtra() { return spacingExtra; } public float getLineSpacingMultiplier() { return spacingMult; } public float getLetterSpacing() { return letterSpacing; } public boolean getIncludeFontPadding() { return includeFontPadding; } public boolean isHorizontallyScrollable() { return horizontallyScrolling; }
+    public void setMinWidth(int v) { setMinimumWidth(v); } public void setMinHeight(int v) { setMinimumHeight(v); } public int getMinWidth() { return getMinimumWidth(); } public int getMinHeight() { return getMinimumHeight(); } public void setMaxWidth(int v) {} public void setMinEms(int v) {} public void setMaxEms(int v) {}
+    public android.content.res.ColorStateList getTextColors() { return android.content.res.ColorStateList.valueOf(getCurrentTextColor()); } public android.content.res.ColorStateList getHintTextColors() { return android.content.res.ColorStateList.valueOf(hintColor); }
+    public void beginBatchEdit() {} public void endBatchEdit() {} protected void onTextChanged(CharSequence text,int start,int before,int count) {} protected void onSelectionChanged(int start,int end) {} public int getSelectionStart() { return selectionStart; } public int getSelectionEnd() { return selectionEnd; }
+    public int getLineBounds(int line,android.graphics.Rect bounds) { int top=getPaddingTop()+line*getLineHeight(); if(bounds!=null) bounds.set(getPaddingLeft(),top,getWidth()-getPaddingRight(),top+getLineHeight()); return top+getBaseline(); } public int getOffsetForPosition(float x,float y) { return Math.max(0,Math.min(text.length(),(int)(x/Math.max(1,textSize*.55f)))); }
+
 }

@@ -34,6 +34,13 @@ pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
             Ok((w.max(0.0).ceil() as u32 as u64) | ((h.max(0.0).ceil() as u32 as u64) << 32))
         },
     );
+    m.insert(
+        "Landroid/app/ActivityThread;->nativeTheme(Ljava/lang/String;)I",
+        |vm, a| {
+            let name = vm.rust_string(a[0]).unwrap_or_default();
+            Ok(vm.manifest_themes.get(&name).copied().unwrap_or(0) as u64)
+        },
+    );
     m.insert("Landroid/widget/VMImage;->size(I)J", |vm, a| {
         Ok(match vm.image_sizer.as_ref().and_then(|f| f(a[0])) {
             Some((w, h)) => w as u64 | (h as u64) << 32,
@@ -87,6 +94,41 @@ pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
         },
     );
     m.insert(
+        "Landroid/content/res/Resources;->nativeStyle(I)[Ljava/lang/String;",
+        |vm, a| {
+            let Some(items) = vm.resources.as_ref().and_then(|r| r.style(a[0])) else {
+                return Ok(0);
+            };
+            let arr = vm.new_array("[Ljava/lang/String;", items.len() * 2)?;
+            vm.pins.push(arr);
+            for (i, (id, value)) in items.iter().enumerate() {
+                for (j, s) in [(*id as i32).to_string(), value.clone()].iter().enumerate() {
+                    let value = vm.new_string(s);
+                    if let ObjData::ArrL(x) = &mut vm.heap.get_mut(arr).unwrap().data {
+                        x[i * 2 + j] = value;
+                    }
+                }
+            }
+            vm.pins.pop();
+            Ok(arr as u64)
+        },
+    );
+    m.insert(
+        "Landroid/content/res/Resources;->nativeValue(I)Ljava/lang/String;",
+        |vm, a| {
+            let s = vm.resources.as_ref().and_then(|r| r.value(a[0]));
+            Ok(opt_str(vm, s))
+        },
+    );
+    m.insert(
+        "Landroid/content/res/Resources;->nativeXml(Ljava/lang/String;)Ljava/lang/String;",
+        |vm, a| {
+            let path = vm.rust_string(a[0]).unwrap_or_default();
+            let s = vm.resources.as_ref().and_then(|r| r.xml(&path));
+            Ok(opt_str(vm, s))
+        },
+    );
+    m.insert(
         "Landroid/content/res/Resources;->nativeString(I)Ljava/lang/String;",
         |vm, a| {
             let s = vm.resources.as_ref().and_then(|r| r.string(a[0]));
@@ -127,13 +169,17 @@ pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
             let mut name = vm.rust_string(a[0]).unwrap_or_default();
             let mut ty = vm.rust_string(a[1]).unwrap_or_default();
             // "pkg:type/name" or "type/name" forms
-            if let Some((_, rest)) = name.split_once(':') {
+            let package = vm.rust_string(a[2]).unwrap_or_default();
+            let mut android = package == "android";
+            if let Some((pkg, rest)) = name.split_once(':') {
+                android = pkg == "android";
                 name = rest.to_string();
             }
             if let Some((t, n)) = name.clone().split_once('/') {
                 ty = t.to_string();
                 name = n.to_string();
             }
+            if android { ty = format!("android:{ty}"); }
             let id = vm.resources.as_ref().and_then(|r| r.identifier(&name, &ty)).unwrap_or(0);
             Ok(id as u64)
         },

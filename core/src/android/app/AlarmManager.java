@@ -1,0 +1,2 @@
+package android.app;
+public class AlarmManager { public static final int RTC_WAKEUP=0,RTC=1,ELAPSED_REALTIME_WAKEUP=2,ELAPSED_REALTIME=3; public void set(int type,long time,PendingIntent operation) {} public void setExact(int type,long time,PendingIntent operation) {} public void setRepeating(int type,long time,long interval,PendingIntent operation) {} public void cancel(PendingIntent operation) {} }

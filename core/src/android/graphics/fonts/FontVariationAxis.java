@@ -1,0 +1,1 @@
+package android.graphics.fonts; public class FontVariationAxis { public FontVariationAxis(String tag,float value){} public static FontVariationAxis[] fromFontVariationSettings(String s){return null;} }

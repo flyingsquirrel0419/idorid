@@ -19,6 +19,7 @@ public class Handler {
     public final boolean postAtFrontOfQueue(Runnable r) { return postDelayed(r, 0); }
     public final boolean postDelayed(Runnable r, long delay) { return sendMessageDelayed(Message.obtain(this, r), delay); }
     public final boolean postDelayed(Runnable r, Object token, long delay) { Message m = Message.obtain(this, r); m.obj = token; return sendMessageDelayed(m, delay); }
+    public final boolean postAtTime(Runnable r, Object token, long uptime) { Message m = Message.obtain(this, r); m.obj = token; return sendMessageAtTime(m, uptime); }
     public final boolean postAtTime(Runnable r, long uptime) { return sendMessageAtTime(Message.obtain(this, r), uptime); }
     public final void removeCallbacks(Runnable r) { Looper.getMainLooper().remove(this, r, 0, null, false); }
     public final void removeCallbacks(Runnable r, Object token) { Looper.getMainLooper().remove(this, r, 0, token, false); }

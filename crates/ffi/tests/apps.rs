@@ -83,7 +83,7 @@ fn todo_app_full_flow() {
     // second activity with extras
     let v = ui(&app.click(id(by_text(&v, "About"))));
     assert_eq!(v["title"], "About");
-    by_text(&v, "Open tasks: 2\nAndroid API 34 on idorid");
+    by_text(&v, "Open tasks: 2\nAndroid API 30 on idorid");
     let logo = by_type(&v, "ImageView");
     let png = app
         .resource_bytes(logo["src"].as_u64().unwrap() as u32)

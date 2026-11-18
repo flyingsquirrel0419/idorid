@@ -7,6 +7,7 @@ import android.view.XmlAttrs;
 public class ImageView extends View {
     public enum ScaleType { MATRIX, FIT_XY, FIT_START, FIT_CENTER, FIT_END, CENTER, CENTER_CROP, CENTER_INSIDE }
     private int src;
+    private android.graphics.drawable.Drawable image; private android.content.res.ColorStateList imageTint; private android.graphics.PorterDuff.Mode tintMode; private android.graphics.Matrix matrix; private int imageAlpha=255, baseline=-1; private boolean cropToPadding;
     private int tint;
     private ScaleType scale = ScaleType.FIT_CENTER;
     public ImageView(Context c) { super(c); }
@@ -24,7 +25,7 @@ public class ImageView extends View {
     private boolean adjustViewBounds;
     private int maxW = Integer.MAX_VALUE, maxH = Integer.MAX_VALUE;
     public void setImageResource(int id) { if (id != src) { src = id; requestLayout(); } }
-    public void setImageDrawable(android.graphics.drawable.Drawable d) { setImageResource(d == null ? 0 : d.idoridResource()); }
+    public void setImageDrawable(android.graphics.drawable.Drawable d) { image=d; setImageResource(d == null ? 0 : d.idoridResource()); }
     public void setMaxWidth(int w) { maxW = w; requestLayout(); }
     public void setMaxHeight(int h) { maxH = h; requestLayout(); }
     public int getMaxWidth() { return maxW; }
@@ -50,7 +51,7 @@ public class ImageView extends View {
     public void setScaleType(ScaleType s) { scale = s; }
     public ScaleType getScaleType() { return scale; }
     public void setColorFilter(int c) { tint = c; }
-    public void setImageTintList(android.content.res.ColorStateList c) { tint = c == null ? 0 : c.getDefaultColor(); }
+    public void setImageTintList(android.content.res.ColorStateList c) { imageTint=c; tint = c == null ? 0 : c.getDefaultColor(); }
     public void setAdjustViewBounds(boolean b) { adjustViewBounds = b; requestLayout(); }
     protected String idoridType() { return "ImageView"; }
     protected void idoridProps(StringBuilder sb) {
@@ -62,4 +63,8 @@ public class ImageView extends View {
         }
         if (tint != 0) { Json.key(sb, "tint"); Json.str(sb, android.graphics.Color.toHex(tint)); }
     }
+    public ImageView(Context c,AttributeSet a,int s,int r) { this(c,a,s); }
+    public android.graphics.drawable.Drawable getDrawable() { return image; } public android.content.res.ColorStateList getImageTintList() { return imageTint; } public void setImageTintMode(android.graphics.PorterDuff.Mode m) { tintMode=m; } public android.graphics.PorterDuff.Mode getImageTintMode() { return tintMode; }
+    public void setImageMatrix(android.graphics.Matrix m) { matrix=m; } public android.graphics.Matrix getImageMatrix() { return matrix; } public void setImageState(int[] state,boolean merge) {} public void setImageLevel(int level) { if(image!=null) image.setLevel(level); } public void setImageURI(android.net.Uri uri) {} public void setImageAlpha(int a) { imageAlpha=a; } public int getImageAlpha() { return imageAlpha; } public void setCropToPadding(boolean b) { cropToPadding=b; } public boolean getCropToPadding() { return cropToPadding; } public void setBaseline(int b) { baseline=b; } public int getBaseline() { return baseline; }
+
 }

@@ -1,0 +1,1 @@
+package android.graphics; public class Shader { public enum TileMode { CLAMP,REPEAT,MIRROR,DECAL } int color=0xff000000; private Matrix matrix; public boolean getLocalMatrix(Matrix m){if(matrix==null)return false;m.set(matrix);return true;} public void setLocalMatrix(Matrix m){matrix=m==null?null:new Matrix(m);} }

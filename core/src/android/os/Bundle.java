@@ -56,6 +56,14 @@ public class Bundle implements Parcelable, Cloneable {
     public java.util.ArrayList<String> getStringArrayList(String k) { return (java.util.ArrayList<String>) map.get(k); }
     @SuppressWarnings("unchecked")
     public java.util.ArrayList<Integer> getIntegerArrayList(String k) { return (java.util.ArrayList<Integer>) map.get(k); }
+    public void setClassLoader(ClassLoader loader) {}
+    public <T> T getParcelable(String key, Class<T> type) { Object v=map.get(key); return type.isInstance(v) ? type.cast(v) : null; }
+    public <T> T[] getParcelableArray(String key, Class<T> type) { return (T[])map.get(key); }
+    public <T> java.util.ArrayList<T> getParcelableArrayList(String key, Class<? extends T> type) { return (java.util.ArrayList<T>)map.get(key); }
+    public <T extends java.io.Serializable> T getSerializable(String key, Class<T> type) { Object v=map.get(key); return type.isInstance(v) ? type.cast(v) : null; }
+    public <T extends Parcelable> void putSparseParcelableArray(String key, android.util.SparseArray<T> value) { map.put(key,value); }
+    public <T extends Parcelable> android.util.SparseArray<T> getSparseParcelableArray(String key) { return (android.util.SparseArray<T>)map.get(key); }
+    public <T> android.util.SparseArray<T> getSparseParcelableArray(String key, Class<? extends T> type) { return (android.util.SparseArray<T>)map.get(key); }
     public Object clone() { return new Bundle(this); }
     public int describeContents() { return 0; }
     public void writeToParcel(Parcel p, int f) {}

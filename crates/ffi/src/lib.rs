@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 mod image_size;
+mod manifest_themes;
 
 type MeasureTextFn = unsafe extern "C" fn(*const c_char, f32, i32, f32, *mut f32);
 static TEXT_MEASURER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
@@ -74,6 +75,21 @@ const REF_ATTRS: &[&str] = &[
     "layout_alignRight",
     "layout_alignStart",
     "layout_alignEnd",
+    "background",
+    "foreground",
+    "button",
+    "thumb",
+    "track",
+    "progressDrawable",
+    "divider",
+    "listSelector",
+    "drawableLeft",
+    "drawableRight",
+    "drawableTop",
+    "drawableBottom",
+    "drawableStart",
+    "drawableEnd",
+    "layout_alignBaseline",
     "labelFor",
     "nextFocusDown",
     "entries",
@@ -95,17 +111,26 @@ impl ApkResources {
             }
         }
         let rv = self.resolve(v);
+        if let (ResValue::Reference(id), ResValue::String(path)) = (v, &rv) {
+            if path.starts_with("res/") {
+                return Some(format!("r:{}", *id as i32));
+            }
+        }
         Some(match rv {
-            ResValue::Null | ResValue::Attribute(_) => return None,
+            ResValue::Null => return None,
+            ResValue::Attribute(id) => format!("a:{}", id as i32),
             ResValue::String(s) => {
-                format!("s:{}", s.replace(['\u{1}', '\u{2}', '\u{3}', '\u{4}'], ""))
+                format!(
+                    "s:{}",
+                    s.replace(['\u{1}', '\u{2}', '\u{3}', '\u{4}', '\u{5}'], "")
+                )
             }
             ResValue::Reference(id) => format!("r:{}", id as i32),
             ResValue::Int(i) => format!("i:{i}"),
             ResValue::Hex(h) => format!("i:{}", h as i32),
             ResValue::Bool(b) => format!("b:{b}"),
             ResValue::Dimension { value, unit: u } => {
-                format!("d:{}{}", dimen_px(value, u), unit(u))
+                format!("d:{}{}", value, unit(u))
             }
             ResValue::Fraction { value, .. } => format!("f:{value}"),
             ResValue::Color(c) => format!("c:{}", c as i32),
@@ -125,6 +150,10 @@ impl ApkResources {
             if let Some(v) = self.encode(&a.name, &a.value) {
                 out.push('\u{2}');
                 out.push_str(&a.name);
+                if let Some(id) = a.resource_id {
+                    out.push('\u{5}');
+                    out.push_str(&(id as i32).to_string());
+                }
                 out.push('\u{4}');
                 out.push_str(&v);
             }
@@ -154,7 +183,9 @@ impl ResourceProvider for ApkResources {
     }
     fn name(&self, id: u32) -> Option<String> {
         let n = self.res.as_ref()?.name(id)?;
-        Some(if n.contains(':') {
+        Some(if id >> 24 == 1 {
+            format!("android:{n}")
+        } else if n.contains(':') {
             n.to_string()
         } else {
             format!("{}:{}", self.package, n)
@@ -180,8 +211,50 @@ impl ResourceProvider for ApkResources {
     fn identifier(&self, name: &str, ty: &str) -> Option<u32> {
         self.res.as_ref()?.id_by_name(ty, name)
     }
-    fn string_array(&self, _id: u32) -> Option<Vec<String>> {
-        None
+    fn string_array(&self, id: u32) -> Option<Vec<String>> {
+        self.res.as_ref()?.string_array(id)
+    }
+    fn style(&self, id: u32) -> Option<Vec<(u32, String)>> {
+        let res = self.res.as_ref()?;
+        res.bag(id)?;
+        Some(
+            res.style(id)
+                .into_iter()
+                .filter_map(|(id, v)| self.encode("", &v).map(|v| (id, v)))
+                .collect(),
+        )
+    }
+    fn value(&self, id: u32) -> Option<String> {
+        let res = self.res.as_ref()?;
+        if res.bag(id).is_some() {
+            return Some(format!("r:{}", id as i32));
+        }
+        let v = res.get(id)?;
+        let resolved = self.resolve(&v);
+        if let ResValue::String(s) = &resolved {
+            if s.starts_with("res/") {
+                return Some(format!("p:{s}"));
+            }
+        }
+        self.encode("", &v)
+    }
+    fn xml(&self, path: &str) -> Option<String> {
+        let bytes = self.apk.read(path)?;
+        let doc = Document::parse(&bytes).ok()?;
+        let mut out = String::new();
+        self.serialize(&doc.root, &mut out);
+        Some(out)
+    }
+    fn attr_name(&self, id: u32) -> Option<String> {
+        let n = self.res.as_ref()?.name(id)?.strip_prefix("attr/")?;
+        Some(if id >> 24 == 1 {
+            format!("android:{n}")
+        } else {
+            n.to_owned()
+        })
+    }
+    fn bag_parent(&self, id: u32) -> Option<u32> {
+        Some(self.res.as_ref()?.bag(id)?.parent)
     }
 }
 
@@ -261,6 +334,9 @@ impl App {
             vm.add_dex(Rc::from(d))?;
         }
         vm.resources = Some(Box::new(provider));
+        if let Some(m) = apk.read("AndroidManifest.xml") {
+            vm.manifest_themes = manifest_themes::read(&m, &manifest.package);
+        }
         vm.text_measurer = Some(Box::new(|text, size, flags, max_width| {
             let ptr = TEXT_MEASURER.load(Ordering::Acquire);
             if ptr.is_null() {

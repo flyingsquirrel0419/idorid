@@ -33,7 +33,11 @@ fn advance(c: char, size: f32, flags: i32) -> f32 {
 pub fn approximate(text: &str, size: f32, flags: i32, max_width: f32) -> (f32, f32) {
     let line_h = (size * 1.17).ceil();
     let max_lines = ((flags >> 8) & 0xff) as usize;
-    let limit = if max_width > 0.0 { max_width } else { f32::INFINITY };
+    let limit = if max_width > 0.0 {
+        max_width
+    } else {
+        f32::INFINITY
+    };
     let mut widest: f32 = 0.0;
     let mut lines = 0usize;
     for para in text.split('\n') {
@@ -41,7 +45,11 @@ pub fn approximate(text: &str, size: f32, flags: i32, max_width: f32) -> (f32, f
         lines += 1;
         for word in para.split_inclusive(' ') {
             let ww: f32 = word.chars().map(|c| advance(c, size, flags)).sum();
-            let trimmed: f32 = word.trim_end().chars().map(|c| advance(c, size, flags)).sum();
+            let trimmed: f32 = word
+                .trim_end()
+                .chars()
+                .map(|c| advance(c, size, flags))
+                .sum();
             if line_w > 0.0 && line_w + trimmed > limit {
                 widest = widest.max(line_w);
                 lines += 1;

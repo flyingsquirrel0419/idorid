@@ -4,7 +4,7 @@ mod android_attrs;
 pub mod axml;
 mod binary;
 pub mod resources;
-pub use resources::{ResValue, Resources};
+pub use resources::{Bag, ResValue, Resources, DEVICE_SDK};
 
 use std::{
     fmt,

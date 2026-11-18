@@ -13,8 +13,20 @@ final class ContextImpl extends Context {
     public String getPackageName() { return ActivityThread.packageName; }
     public Context getApplicationContext() { return app != null ? app : this; }
     public SharedPreferences getSharedPreferences(String name, int mode) { return VMPrefs.get(name); }
+    private Resources.Theme theme;
+    private int themeRes;
+    private android.view.LayoutInflater inflater;
+    public Resources.Theme getTheme() {
+        if (theme == null) {
+            theme = RES.newTheme();
+            int t = themeRes != 0 ? themeRes : ActivityThread.nativeTheme("");
+            theme.applyStyle(t != 0 ? t : IDORID_DEFAULT_THEME, true);
+        }
+        return theme;
+    }
+    public void setTheme(int resid) { themeRes = resid; if (theme != null) theme.applyStyle(resid, true); }
     public Object getSystemService(String name) {
-        if (LAYOUT_INFLATER_SERVICE.equals(name)) return android.view.LayoutInflater.from(this);
+        if (LAYOUT_INFLATER_SERVICE.equals(name)) { if (inflater == null) inflater = android.view.LayoutInflater.idoridCreate(this); return inflater; }
         if (INPUT_METHOD_SERVICE.equals(name)) return new android.view.inputmethod.InputMethodManager();
         return null;
     }

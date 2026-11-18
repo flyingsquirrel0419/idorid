@@ -17,12 +17,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> {
         rebuild();
     }
     public void setOnScrollListener(OnScrollListener l) {}
-    public void setChoiceMode(int m) {}
+    public void setChoiceMode(int m) { choiceMode=m; }
     public void setItemChecked(int p, boolean v) {}
     public void setTextFilterEnabled(boolean b) {}
     public void setFastScrollEnabled(boolean b) {}
     public void smoothScrollToPosition(int p) {}
-    public void setSelector(int r) {}
+    public void setSelector(int r) { selector=r==0?null:getResources().getDrawable(r); }
     public void setStackFromBottom(boolean b) {}
     public void setTranscriptMode(int m) {}
     public void invalidateViews() { rebuild(); }
@@ -80,4 +80,9 @@ public abstract class AbsListView extends AdapterView<ListAdapter> {
         super.idoridProps(sb);
         sb.append("}]");
     }
+    public interface SelectionBoundsAdjuster { void adjustListItemSelectionBounds(android.graphics.Rect rect); }
+    private int choiceMode; private boolean childEnabled=true; private android.graphics.drawable.Drawable selector;
+    public AbsListView(Context c,AttributeSet a,int s,int r) { super(c,a,s,r); }
+    public int getChoiceMode() { return choiceMode; } public int getListPaddingTop() { return getPaddingTop(); } public int getListPaddingBottom() { return getPaddingBottom(); } public android.graphics.drawable.Drawable getSelector() { return selector; } public void setSelector(android.graphics.drawable.Drawable d) { selector=d; } public boolean isSelectedChildViewEnabled() { return childEnabled; } public void setSelectedChildViewEnabled(boolean b) { childEnabled=b; } public void setCacheColorHint(int c) {} protected void layoutChildren() {} public void setSelectionFromTop(int p,int y) { setSelection(p); } public void scrollListBy(int y) { scrollBy(0,y); } public int pointToPosition(int x,int y) { for(int i=0;i<getChildCount();i++) { View v=getChildAt(i); if(x>=v.getLeft() && x<v.getRight() && y>=v.getTop() && y<v.getBottom()) return i; } return INVALID_POSITION; }
+
 }

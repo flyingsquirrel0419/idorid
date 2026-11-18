@@ -1,9 +1,2 @@
-package android.graphics.drawable;
-public class ColorDrawable extends Drawable {
-    private int color;
-    public ColorDrawable() {}
-    public ColorDrawable(int c) { color = c; }
-    public int getColor() { return color; }
-    public void setColor(int c) { color = c; }
-    public int idoridColor() { return color; }
-}
+package android.graphics.drawable; import android.graphics.*;
+public class ColorDrawable extends Drawable { private int color; public ColorDrawable(){} public ColorDrawable(int c){color=c;} public int getColor(){return color;} public void setColor(int c){color=c;invalidateSelf();} public int idoridColor(){return color;} public void draw(Canvas c){Paint p=new Paint();p.setColor(idoridTint(color));p.setAlpha(p.getAlpha()*getAlpha()/255);c.drawRect(getBounds(),p);} }

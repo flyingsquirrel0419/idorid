@@ -1,7 +1,12 @@
 package android.graphics;
 public class RectF {
- public float left, top, right, bottom;
- public RectF() {} public RectF(float l,float t,float r,float b) { set(l,t,r,b); }
- public void set(float l,float t,float r,float b) { left=l; top=t; right=r; bottom=b; }
- public float width() { return right-left; } public float height() { return bottom-top; }
+ public float left,top,right,bottom;
+ public RectF(){} public RectF(float l,float t,float r,float b){set(l,t,r,b);} public RectF(RectF r){set(r);} public RectF(Rect r){set(r); } public void set(Rect r){set(r.left,r.top,r.right,r.bottom);}
+ public void set(float l,float t,float r,float b){left=l;top=t;right=r;bottom=b;} public void set(RectF r){set(r.left,r.top,r.right,r.bottom);} public void setEmpty(){set(0,0,0,0);}
+ public float width(){return right-left;} public float height(){return bottom-top;} public float centerX(){return (left+right)/2;} public float centerY(){return (top+bottom)/2;} public float exactCenterX(){return (left+right)*.5f;} public float exactCenterY(){return (top+bottom)*.5f;}
+ public boolean isEmpty(){return left>=right||top>=bottom;} public void offset(float x,float y){left+=x;right+=x;top+=y;bottom+=y;} public void offsetTo(float x,float y){offset(x-left,y-top);} public void inset(float x,float y){left+=x;right-=x;top+=y;bottom-=y;}
+ public boolean contains(float x,float y){return !isEmpty()&&x>=left&&x<right&&y>=top&&y<bottom;} public boolean contains(RectF r){return !isEmpty()&&left<=r.left&&top<=r.top&&right>=r.right&&bottom>=r.bottom;}
+ public boolean intersect(RectF r){return intersect(r.left,r.top,r.right,r.bottom);} public boolean intersect(float l,float t,float r,float b){if(left<r&&l<right&&top<b&&t<bottom){set(Math.max(left,l),Math.max(top,t),Math.min(right,r),Math.min(bottom,b));return true;}return false;} public static boolean intersects(RectF a,RectF b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;}
+ public void union(RectF r){union(r.left,r.top,r.right,r.bottom);} public void union(float l,float t,float r,float b){if(l>=r||t>=b)return;if(isEmpty())set(l,t,r,b);else set(Math.min(left,l),Math.min(top,t),Math.max(right,r),Math.max(bottom,b));} public void sort(){if(left>right){float v=left;left=right;right=v;}if(top>bottom){float v=top;top=bottom;bottom=v;}}
+ public boolean equals(Object o){if(!(o instanceof RectF))return false;RectF r=(RectF)o;return left==r.left&&top==r.top&&right==r.right&&bottom==r.bottom;} public int hashCode(){return (int)(left*31+top*37+right*41+bottom*43);} public String toShortString(){return "["+left+","+top+"]["+right+","+bottom+"]";} public String toString(){return "RectF("+left+", "+top+" - "+right+", "+bottom+")";}
 }

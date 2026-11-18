@@ -1,0 +1,1 @@
+package android.graphics; public class ComposeShader extends Shader { public ComposeShader(Shader a,Shader b,PorterDuff.Mode m){color=a.color;} public ComposeShader(Shader a,Shader b,Xfermode m){color=a.color;} }

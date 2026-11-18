@@ -8,6 +8,9 @@ package android.os;
 public final class Looper {
     private static final Looper MAIN = new Looper();
     Message head;
+    private final MessageQueue queue = new MessageQueue();
+    public MessageQueue getQueue() { return queue; }
+    public static MessageQueue myQueue() { return MAIN.queue; }
     private Looper() {}
     public static Looper getMainLooper() { return MAIN; }
     public static Looper myLooper() { return MAIN; }
@@ -47,9 +50,14 @@ public final class Looper {
         while (true) {
             java.lang.VMThread.runPending();
             Message m = MAIN.head;
-            if (m == null) return -1;
             long now = SystemClock.uptimeMillis();
-            if (m.when > now) return m.when - now;
+            if (m == null || m.when > now) {
+                MAIN.queue.dispatchIdle();
+                m = MAIN.head;
+                now = SystemClock.uptimeMillis();
+                if (m == null) return -1;
+                if (m.when > now) return m.when - now;
+            }
             MAIN.head = m.next;
             m.next = null;
             m.target.dispatchMessage(m);

@@ -23,6 +23,8 @@ public final class ActivityThread {
     private static boolean allFinished;
 
     private ActivityThread() {}
+    /** android:theme from the manifest for an activity class ("" = application); 0 if none. */
+    static native int nativeTheme(String activityClass);
 
     public static String launch(String pkg, String label, String activityClass, String appClass) {
         packageName = pkg;

@@ -64,4 +64,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         }
     }
     void onRowClicked(View row, int pos) { performItemClick(row, pos, getItemIdAtPosition(pos)); }
+    public AdapterView(Context c,AttributeSet a,int s,int r) { super(c,a,s,r); }
+    public int getSelectedItemPosition() { return INVALID_POSITION; } public Object getSelectedItem() { return getItemAtPosition(getSelectedItemPosition()); } public long getSelectedItemId() { return getItemIdAtPosition(getSelectedItemPosition()); } public View getSelectedView() { return null; }
+
 }

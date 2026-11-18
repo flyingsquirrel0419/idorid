@@ -24,11 +24,12 @@ public class Dialog implements DialogInterface {
     public void setCanceledOnTouchOutside(boolean c) {}
     public void setOnCancelListener(OnCancelListener l) { onCancel = l; }
     public void setOnDismissListener(OnDismissListener l) { onDismiss = l; }
-    public void show() { showing = true; ActivityThread.showDialog(this); }
+    public void show() { if(!created) { onCreate(null); created=true; } showing = true; onStart(); ActivityThread.showDialog(this); }
     public boolean isShowing() { return showing; }
     public void dismiss() {
         if (!showing) return;
         showing = false;
+        onStop();
         ActivityThread.dismissDialog(this);
         if (onDismiss != null) onDismiss.onDismiss(this);
     }
@@ -43,4 +44,8 @@ public class Dialog implements DialogInterface {
         sb.append(",\"cancelable\":").append(cancelable);
         sb.append('}');
     }
+    private OnKeyListener onKey; private Activity owner; private boolean created;
+    public void setContentView(View v,android.view.ViewGroup.LayoutParams params) { content=v; v.setLayoutParams(params); } public void addContentView(View v,android.view.ViewGroup.LayoutParams params) { if(content instanceof android.view.ViewGroup) ((android.view.ViewGroup)content).addView(v,params); else setContentView(v,params); }
+    protected void onCreate(android.os.Bundle state) {} protected void onStart() {} protected void onStop() {} public void onBackPressed() { if(cancelable) cancel(); } public boolean onKeyDown(int keyCode,android.view.KeyEvent event) { return false; } public boolean onKeyUp(int keyCode,android.view.KeyEvent event) { return false; } public boolean onTouchEvent(android.view.MotionEvent event) { return false; } public boolean dispatchKeyEvent(android.view.KeyEvent event) { return onKey!=null && onKey.onKey(this,event.getKeyCode(),event); } public void setOnKeyListener(OnKeyListener listener) { onKey=listener; } public boolean requestWindowFeature(int feature) { return true; } public void setOwnerActivity(Activity activity) { owner=activity; } public Activity getOwnerActivity() { return owner; } public android.os.Bundle onSaveInstanceState() { return new android.os.Bundle(); } public void onRestoreInstanceState(android.os.Bundle state) {}
+
 }

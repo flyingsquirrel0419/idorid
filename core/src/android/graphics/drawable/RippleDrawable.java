@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class RippleDrawable extends LayerDrawable { public RippleDrawable(ColorStateList color,Drawable content,Drawable mask){super(content==null?new Drawable[0]:new Drawable[]{content});} public void setColor(ColorStateList color){} public void setRadius(int r){} }

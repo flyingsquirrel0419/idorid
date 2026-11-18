@@ -13,6 +13,7 @@ import android.widget.FrameLayout;
 public class Activity extends ContextWrapper {
     public static final int RESULT_OK = -1, RESULT_CANCELED = 0, RESULT_FIRST_USER = 1;
     Intent mIntent;
+    /** The window's decor view: the root laid out and serialized by ActivityThread. */
     FrameLayout mContent;
     CharSequence mTitle;
     boolean mFinished, mResumed;
@@ -20,7 +21,7 @@ public class Activity extends ContextWrapper {
     Intent mResultData;
     Activity mCaller;
     int mRequestCode = -1;
-    private final Window window = new Window();
+    private Window window;
     private Application app;
 
     public Activity() { super(null); }
@@ -28,8 +29,8 @@ public class Activity extends ContextWrapper {
         attachBaseContext(base);
         this.app = app;
         mIntent = intent;
-        mContent = new FrameLayout(this);
-        mContent.setLayoutParams(new ViewGroup.LayoutParams(-1, -1));
+        window = new Window(this);
+        mContent = (FrameLayout) window.getDecorView();
     }
     protected void onCreate(Bundle savedInstanceState) {}
     protected void onPostCreate(Bundle savedInstanceState) {}
@@ -54,19 +55,17 @@ public class Activity extends ContextWrapper {
     public boolean onOptionsItemSelected(android.view.MenuItem item) { return false; }
     public boolean onKeyDown(int keyCode, android.view.KeyEvent e) { return false; }
 
-    public void setContentView(int layoutResID) {
-        mContent.removeAllViews();
-        LayoutInflater.from(this).inflate(layoutResID, mContent, true);
-    }
+    public void setContentView(int layoutResID) { getWindow().setContentView(layoutResID); onContentChanged(); }
     public void setContentView(View view) {
-        mContent.removeAllViews();
         ViewGroup.LayoutParams p = view.getLayoutParams();
-        mContent.addView(view, p != null ? p : new FrameLayout.LayoutParams(-1, -1));
+        getWindow().setContentView(view, p != null ? p : new FrameLayout.LayoutParams(-1, -1));
+        onContentChanged();
     }
-    public void setContentView(View view, ViewGroup.LayoutParams p) { mContent.removeAllViews(); mContent.addView(view, p); }
-    public void addContentView(View view, ViewGroup.LayoutParams p) { mContent.addView(view, p); }
+    public void setContentView(View view, ViewGroup.LayoutParams p) { getWindow().setContentView(view, p); onContentChanged(); }
+    public void addContentView(View view, ViewGroup.LayoutParams p) { getWindow().addContentView(view, p); onContentChanged(); }
+    public void onContentChanged() {}
     @SuppressWarnings("unchecked")
-    public <T extends View> T findViewById(int id) { return (T) mContent.findViewById(id); }
+    public <T extends View> T findViewById(int id) { return (T) getWindow().findViewById(id); }
     @SuppressWarnings("unchecked")
     public final <T extends View> T requireViewById(int id) {
         T v = findViewById(id);
@@ -109,8 +108,22 @@ public class Activity extends ContextWrapper {
     public ActionBar getActionBar() { return null; }
     public final void showDialog(int id) {}
     public void openOptionsMenu() {}
+    private android.content.res.Resources.Theme theme;
+    private int themeRes;
+    private LayoutInflater inflater;
+    public android.content.res.Resources.Theme getTheme() {
+        if (theme == null) {
+            theme = getResources().newTheme();
+            int t = themeRes;
+            if (t == 0) t = ActivityThread.nativeTheme(getClass().getName());
+            if (t == 0) t = ActivityThread.nativeTheme("");
+            theme.applyStyle(t != 0 ? t : IDORID_DEFAULT_THEME, true);
+        }
+        return theme;
+    }
+    public void setTheme(int resid) { themeRes = resid; if (theme != null) theme.applyStyle(resid, true); }
     public Object getSystemService(String name) {
-        if (LAYOUT_INFLATER_SERVICE.equals(name)) return LayoutInflater.from(this);
+        if (LAYOUT_INFLATER_SERVICE.equals(name)) { if (inflater == null) inflater = LayoutInflater.idoridCreate(this); return inflater; }
         return super.getSystemService(name);
     }
 }

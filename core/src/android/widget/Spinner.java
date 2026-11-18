@@ -31,7 +31,7 @@ public class Spinner extends AdapterView<SpinnerAdapter> {
     public Object getSelectedItem() { return selected < 0 || adapter == null ? null : adapter.getItem(selected); }
     public long getSelectedItemId() { return selected < 0 || adapter == null ? INVALID_ROW_ID : adapter.getItemId(selected); }
     public View getSelectedView() { return selected < 0 ? null : getChildAt(selected); }
-    public void setPrompt(CharSequence p) {}
+    public void setPrompt(CharSequence p) { prompt=p; }
     void onRowClicked(View row, int pos) { setSelection(pos); }
     protected void onMeasure(int ws, int hs) {
         float w = 0;
@@ -59,4 +59,8 @@ public class Spinner extends AdapterView<SpinnerAdapter> {
         }
         sb.append(']');
     }
+    private int horizontalOffset,verticalOffset,dropDownWidth; private CharSequence prompt; private android.graphics.drawable.Drawable popupBackground;
+    public Spinner(Context c,AttributeSet a,int s,int r) { super(c,a,s,r); }
+    public void setDropDownHorizontalOffset(int v) { horizontalOffset=v; } public int getDropDownHorizontalOffset() { return horizontalOffset; } public void setDropDownVerticalOffset(int v) { verticalOffset=v; } public int getDropDownVerticalOffset() { return verticalOffset; } public void setDropDownWidth(int v) { dropDownWidth=v; } public int getDropDownWidth() { return dropDownWidth; } public void setPopupBackgroundDrawable(android.graphics.drawable.Drawable d) { popupBackground=d; } public android.graphics.drawable.Drawable getPopupBackground() { return popupBackground; } public CharSequence getPrompt() { return prompt; }
+
 }

@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class AnimatedStateListDrawable extends StateListDrawable { public void addState(int[] s,Drawable d,int id){addState(s,d);} public void addTransition(int fromId,int toId,Drawable d,boolean reversible){} }

@@ -37,4 +37,9 @@ public class ProgressBar extends View {
         Json.key(sb, "max"); sb.append(max);
         Json.key(sb, "indeterminate"); sb.append(indeterminate);
     }
+    private android.graphics.drawable.Drawable progressDrawable,indeterminateDrawable; private android.content.res.ColorStateList progressTint,indeterminateTint;
+    public ProgressBar(Context c,AttributeSet a,int s,int r) { this(c,a,s); }
+    public void setProgressDrawable(android.graphics.drawable.Drawable d) { progressDrawable=d; } public android.graphics.drawable.Drawable getProgressDrawable() { return progressDrawable; } public void setIndeterminateDrawable(android.graphics.drawable.Drawable d) { indeterminateDrawable=d; } public android.graphics.drawable.Drawable getIndeterminateDrawable() { return indeterminateDrawable; }
+    public void setProgressTintList(android.content.res.ColorStateList t) { progressTint=t; } public android.content.res.ColorStateList getProgressTintList() { return progressTint; } public void setIndeterminateTintList(android.content.res.ColorStateList t) { indeterminateTint=t; } public android.content.res.ColorStateList getIndeterminateTintList() { return indeterminateTint; }
+
 }

@@ -1,2 +1,1 @@
-package android.graphics;
-public class Point { public int x,y; public Point() {} public Point(int x,int y) { this.x=x; this.y=y; } public void set(int x,int y) { this.x=x; this.y=y; } }
+package android.graphics; public class Point { public int x,y; public Point(){} public Point(int x,int y){set(x,y);} public Point(Point p){set(p.x,p.y);} public void set(int x,int y){this.x=x;this.y=y;} public void offset(int x,int y){this.x+=x;this.y+=y;} public boolean equals(Object o){return o instanceof Point&&((Point)o).x==x&&((Point)o).y==y;} public int hashCode(){return x*31+y;} public String toString(){return "Point("+x+", "+y+")";} }

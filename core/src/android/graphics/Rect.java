@@ -1,7 +1,12 @@
 package android.graphics;
 public class Rect {
- public int left, top, right, bottom;
- public Rect() {} public Rect(int l,int t,int r,int b) { set(l,t,r,b); }
- public void set(int l,int t,int r,int b) { left=l; top=t; right=r; bottom=b; }
- public int width() { return right-left; } public int height() { return bottom-top; }
+ public int left,top,right,bottom;
+ public Rect(){} public Rect(int l,int t,int r,int b){set(l,t,r,b);} public Rect(Rect r){set(r);} 
+ public void set(int l,int t,int r,int b){left=l;top=t;right=r;bottom=b;} public void set(Rect r){set(r.left,r.top,r.right,r.bottom);} public void setEmpty(){set(0,0,0,0);}
+ public int width(){return right-left;} public int height(){return bottom-top;} public int centerX(){return (left+right)/2;} public int centerY(){return (top+bottom)/2;} public float exactCenterX(){return (left+right)*.5f;} public float exactCenterY(){return (top+bottom)*.5f;}
+ public boolean isEmpty(){return left>=right||top>=bottom;} public void offset(int x,int y){left+=x;right+=x;top+=y;bottom+=y;} public void offsetTo(int x,int y){offset(x-left,y-top);} public void inset(int x,int y){left+=x;right-=x;top+=y;bottom-=y;}
+ public boolean contains(int x,int y){return !isEmpty()&&x>=left&&x<right&&y>=top&&y<bottom;} public boolean contains(Rect r){return !isEmpty()&&left<=r.left&&top<=r.top&&right>=r.right&&bottom>=r.bottom;}
+ public boolean intersect(Rect r){return intersect(r.left,r.top,r.right,r.bottom);} public boolean intersect(int l,int t,int r,int b){if(left<r&&l<right&&top<b&&t<bottom){set(Math.max(left,l),Math.max(top,t),Math.min(right,r),Math.min(bottom,b));return true;}return false;} public static boolean intersects(Rect a,Rect b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;}
+ public void union(Rect r){union(r.left,r.top,r.right,r.bottom);} public void union(int l,int t,int r,int b){if(l>=r||t>=b)return;if(isEmpty())set(l,t,r,b);else set(Math.min(left,l),Math.min(top,t),Math.max(right,r),Math.max(bottom,b));} public void sort(){if(left>right){int v=left;left=right;right=v;}if(top>bottom){int v=top;top=bottom;bottom=v;}}
+ public boolean equals(Object o){if(!(o instanceof Rect))return false;Rect r=(Rect)o;return left==r.left&&top==r.top&&right==r.right&&bottom==r.bottom;} public int hashCode(){return (int)(left*31+top*37+right*41+bottom*43);} public String toShortString(){return "["+left+","+top+"]["+right+","+bottom+"]";} public String toString(){return "Rect("+left+", "+top+" - "+right+", "+bottom+")";}
 }

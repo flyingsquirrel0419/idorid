@@ -20,9 +20,17 @@ public abstract class Context {
     public final String getString(int id) { return getResources().getString(id); }
     public final String getString(int id, Object... args) { return getResources().getString(id, args); }
     public final CharSequence getText(int id) { return getResources().getText(id); }
-    public final int getColor(int id) { return getResources().getColor(id); }
-    public android.content.res.Resources.Theme getTheme() { return getResources().newTheme(); }
-    public void setTheme(int resid) {}
+    public final int getColor(int id) { return getResources().getColor(id, getTheme()); }
+    public final android.content.res.ColorStateList getColorStateList(int id) { return getResources().getColorStateList(id, getTheme()); }
+    public final android.graphics.drawable.Drawable getDrawable(int id) { return getResources().getDrawable(id, getTheme()); }
+    public abstract android.content.res.Resources.Theme getTheme();
+    public abstract void setTheme(int resid);
+    public final android.content.res.TypedArray obtainStyledAttributes(int[] attrs) { return getTheme().obtainStyledAttributes(attrs); }
+    public final android.content.res.TypedArray obtainStyledAttributes(int resid, int[] attrs) { return getTheme().obtainStyledAttributes(resid, attrs); }
+    public final android.content.res.TypedArray obtainStyledAttributes(android.util.AttributeSet set, int[] attrs) { return getTheme().obtainStyledAttributes(set, attrs, 0, 0); }
+    public final android.content.res.TypedArray obtainStyledAttributes(android.util.AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes) { return getTheme().obtainStyledAttributes(set, attrs, defStyleAttr, defStyleRes); }
+    /** android.R.style.Theme_Material_Light: used when the manifest names no theme. */
+    public static final int IDORID_DEFAULT_THEME = 0x01030237;
     public ClassLoader getClassLoader() { return ClassLoader.getSystemClassLoader(); }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return new android.content.pm.ApplicationInfo(); }
     public android.content.pm.PackageManager getPackageManager() { return new android.content.pm.PackageManager(); }

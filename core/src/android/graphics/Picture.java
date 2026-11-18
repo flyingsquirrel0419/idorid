@@ -1,0 +1,1 @@
+package android.graphics; public class Picture { private int w,h; public Picture(){} public Picture(Picture p){w=p.w;h=p.h;} public Canvas beginRecording(int w,int h){this.w=w;this.h=h;return new Canvas(w,h);} public void endRecording(){} public int getWidth(){return w;} public int getHeight(){return h;} public void draw(Canvas c){} }

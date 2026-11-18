@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class NinePatchDrawable extends Drawable { public NinePatchDrawable(){} }

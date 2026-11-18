@@ -1,0 +1,2 @@
+package android.app;
+public abstract class IntentService extends Service { public IntentService(String name) {} protected abstract void onHandleIntent(android.content.Intent intent); public int onStartCommand(android.content.Intent intent,int flags,int id) { onHandleIntent(intent); stopSelf(id); return START_NOT_STICKY; } public android.os.IBinder onBind(android.content.Intent i) { return null; } public void setIntentRedelivery(boolean enabled) {} }

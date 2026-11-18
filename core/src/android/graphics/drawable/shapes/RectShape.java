@@ -1,0 +1,1 @@
+package android.graphics.drawable.shapes; import android.graphics.*; public class RectShape extends Shape { public void draw(Canvas c,Paint p){c.drawRect(0,0,getWidth(),getHeight(),p);} }

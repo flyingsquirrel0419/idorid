@@ -1,0 +1,2 @@
+package android.app;
+public class NotificationChannel { private final String id; private CharSequence name; private int importance; public NotificationChannel(String id,CharSequence name,int importance) { this.id=id; this.name=name; this.importance=importance; } public String getId() { return id; } public CharSequence getName() { return name; } public void setName(CharSequence n) { name=n; } public int getImportance() { return importance; } public void setDescription(String d) {} }

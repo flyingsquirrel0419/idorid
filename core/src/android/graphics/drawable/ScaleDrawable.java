@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class ScaleDrawable extends DrawableWrapper { public ScaleDrawable(Drawable d,int gravity,float width,float height){super(d);} }

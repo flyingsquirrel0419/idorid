@@ -1,0 +1,1 @@
+package android.graphics.drawable.shapes; import android.graphics.*; public abstract class Shape { private float w,h; public void resize(float w,float h){this.w=w;this.h=h;onResize(w,h);} protected void onResize(float w,float h){} public float getWidth(){return w;} public float getHeight(){return h;} public abstract void draw(Canvas c,Paint p); }

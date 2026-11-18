@@ -1,0 +1,2 @@
+package android.os;
+public class PowerManager { public boolean isPowerSaveMode() { return false; } public boolean isInteractive() { return true; } }

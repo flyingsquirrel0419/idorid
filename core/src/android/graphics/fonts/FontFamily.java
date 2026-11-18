@@ -1,0 +1,1 @@
+package android.graphics.fonts; public class FontFamily { public int getSize(){return 0;} public Font getFont(int i){return null;} public static class Builder { public Builder(Font f){} public Builder addFont(Font f){return this;} public FontFamily build(){return new FontFamily();} } }

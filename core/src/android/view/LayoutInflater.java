@@ -9,10 +9,53 @@ import java.util.ArrayList;
  */
 public class LayoutInflater {
     private final Context ctx;
+    private Factory factory;
+    private Factory2 factory2, privateFactory;
+    private Filter filter;
     protected LayoutInflater(Context c) { ctx = c; }
-    public static LayoutInflater from(Context c) { return new LayoutInflater(c); }
+    protected LayoutInflater(LayoutInflater original, Context c) { ctx = c; factory = original.factory; factory2 = original.factory2; privateFactory = original.privateFactory; filter = original.filter; }
+    /** The context's own inflater (so factories installed by AppCompat persist), like Android. */
+    public static LayoutInflater from(Context c) {
+        Object o = c.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        if (o instanceof LayoutInflater) return (LayoutInflater) o;
+        return new LayoutInflater(c);
+    }
+    /** idorid: a plain inflater for contexts that cache one. */
+    public static LayoutInflater idoridCreate(Context c) { return new LayoutInflater(c); }
     public Context getContext() { return ctx; }
-    public LayoutInflater cloneInContext(Context c) { return new LayoutInflater(c); }
+    public LayoutInflater cloneInContext(Context c) { return new LayoutInflater(this, c); }
+    public final Factory getFactory() { return factory; }
+    public final Factory2 getFactory2() { return factory2; }
+    public void setFactory(Factory f) {
+        if (factory != null) throw new IllegalStateException("A factory has already been set on this LayoutInflater");
+        if (f == null) throw new NullPointerException("Given factory can not be null");
+        factory = f;
+    }
+    public void setFactory2(Factory2 f) {
+        if (factory != null) throw new IllegalStateException("A factory has already been set on this LayoutInflater");
+        if (f == null) throw new NullPointerException("Given factory can not be null");
+        factory = factory2 = f;
+    }
+    public void setPrivateFactory(Factory2 f) { privateFactory = f; }
+    public Filter getFilter() { return filter; }
+    public void setFilter(Filter f) { filter = f; }
+    public interface Filter { boolean onLoadClass(Class clazz); }
+    public final View createView(String name, String prefix, android.util.AttributeSet attrs) throws ClassNotFoundException, InflateException {
+        return createView(ctx, name, prefix, attrs);
+    }
+    public final View createView(Context viewContext, String name, String prefix, android.util.AttributeSet attrs) throws ClassNotFoundException, InflateException {
+        Class<?> c = Class.forName(prefix != null ? prefix + name : name);
+        return (View) VMInflate.construct(c, viewContext, attrs instanceof XmlAttrs ? (XmlAttrs) attrs : XmlAttrs.EMPTY);
+    }
+    protected View onCreateView(String name, android.util.AttributeSet attrs) throws ClassNotFoundException {
+        String[] prefixes = { "android.widget.", "android.view.", "android.webkit." };
+        for (String pre : prefixes) {
+            try { return createView(name, pre, attrs); } catch (ClassNotFoundException e) {}
+        }
+        throw new ClassNotFoundException(name);
+    }
+    protected View onCreateView(View parent, String name, android.util.AttributeSet attrs) throws ClassNotFoundException { return onCreateView(name, attrs); }
+    public View onCreateView(Context viewContext, View parent, String name, android.util.AttributeSet attrs) throws ClassNotFoundException { return onCreateView(parent, name, attrs); }
     public View inflate(int resource, ViewGroup root) { return inflate(resource, root, root != null); }
     public View inflate(int resource, ViewGroup root, boolean attach) {
         String src = ctx.getResources().getLayoutSource(resource);
@@ -35,7 +78,7 @@ public class LayoutInflater {
             vals.add(s.substring(sep + 1, end));
             p = end;
         }
-        XmlAttrs attrs = new XmlAttrs(names.toArray(new String[0]), vals.toArray(new String[0]));
+        XmlAttrs attrs = new XmlAttrs(names.toArray(new String[0]), vals.toArray(new String[0]), ctx);
         pos[0] = p;
         if (tag.equals("merge")) {
             if (parent == null) throw new InflateException("<merge /> can be used only with a valid ViewGroup root and attachToRoot=true");
@@ -56,7 +99,7 @@ public class LayoutInflater {
             }
             return v;
         }
-        View v = createView(tag, attrs);
+        View v = createViewFromTag(parent, tag, attrs);
         if (parent != null) {
             ViewGroup.LayoutParams lp = parent.generateLayoutParams(attrs);
             if (!top || attach) parent.addView(v, lp);
@@ -78,7 +121,20 @@ public class LayoutInflater {
         while (i < s.length()) { char c = s.charAt(i); if (c <= '\u0004') break; i++; }
         return i;
     }
-    protected View createView(String tag, XmlAttrs attrs) {
+    private View createViewFromTag(View parent, String tag, XmlAttrs attrs) {
+        if (tag.equals("view")) tag = attrs.string("class");
+        View v = null;
+        try {
+            if (factory2 != null) v = factory2.onCreateView(parent, tag, ctx, attrs);
+            else if (factory != null) v = factory.onCreateView(tag, ctx, attrs);
+            if (v == null && privateFactory != null) v = privateFactory.onCreateView(parent, tag, ctx, attrs);
+        } catch (RuntimeException e) {
+            throw e;
+        }
+        if (v != null) return v;
+        return createViewDefault(tag, attrs);
+    }
+    protected View createViewDefault(String tag, XmlAttrs attrs) {
         String[] candidates;
         if (tag.equals("view")) tag = attrs.string("class");
         if (tag.indexOf('.') >= 0) candidates = new String[] { mapAndroidx(tag) };
@@ -105,6 +161,4 @@ public class LayoutInflater {
     }
     public interface Factory { View onCreateView(String name, Context context, android.util.AttributeSet attrs); }
     public interface Factory2 extends Factory { View onCreateView(View parent, String name, Context context, android.util.AttributeSet attrs); }
-    public void setFactory(Factory f) {}
-    public void setFactory2(Factory2 f) {}
 }

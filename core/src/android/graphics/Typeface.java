@@ -5,7 +5,7 @@ public class Typeface {
     private final int style;
     private Typeface(int s) { style = s; }
     public int getStyle() { return style; }
-    public boolean isBold() { return (style & BOLD) != 0; }
+    public int getWeight() { return isBold()?700:400; } public boolean isItalic() { return (style & ITALIC)!=0; } public static Typeface create(String family,int style) { return new Typeface(style); } public static Typeface create(Typeface family,int weight,boolean italic) { return new Typeface((weight>=600?BOLD:0)|(italic?ITALIC:0)); } public static Typeface createFromFile(java.io.File file) { return DEFAULT; } public static Typeface createFromFile(String file) { return DEFAULT; } public static class Builder { public Builder(String s) {} public Builder(java.io.File f) {} public Builder setWeight(int w) { return this; } public Builder setItalic(boolean b) { return this; } public Typeface build() { return DEFAULT; } } public static class CustomFallbackBuilder { public CustomFallbackBuilder(android.graphics.fonts.FontFamily family) {} public CustomFallbackBuilder setStyle(android.graphics.fonts.FontStyle style) { return this; } public CustomFallbackBuilder setSystemFallback(String name) { return this; } public Typeface build() { return DEFAULT; } } public boolean isBold() { return (style & BOLD) != 0; }
     public static Typeface create(Typeface f, int style) { return new Typeface(style); }
     public static Typeface defaultFromStyle(int style) { return new Typeface(style); }
 }

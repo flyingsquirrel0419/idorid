@@ -10,7 +10,16 @@ public final class MotionEvent {
     public float getX(int index) { return x; } public float getY(int index) { return y; }
     public long getEventTime() { return eventTime; } public long getDownTime() { return downTime; }
     public int getAction() { return action; }
-    public int getActionMasked() { return action; }
+    public int getActionMasked() { return action & 255; }
+    public int getActionIndex() { return (action >> 8) & 255; }
+    public int findPointerIndex(int id) { return id == 0 ? 0 : -1; }
+    public int getDeviceId() { return 0; }
+    public int getSource() { return 0; }
+    public float getAxisValue(int axis) { return axis == 0 ? x : axis == 1 ? y : 0; }
+    public void setAction(int a) { action=a; }
+    public void setLocation(float x,float y) { this.x=x; this.y=y; }
+    public void offsetLocation(float dx,float dy) { x+=dx; y+=dy; }
+    public static MotionEvent obtainNoHistory(MotionEvent e) { return obtain(e); }
     public float getX() { return x; }
     public float getY() { return y; }
     public float getRawX() { return x; }

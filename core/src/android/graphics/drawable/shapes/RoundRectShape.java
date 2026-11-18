@@ -1,0 +1,1 @@
+package android.graphics.drawable.shapes; import android.graphics.*; public class RoundRectShape extends RectShape { private float radius; public RoundRectShape(float[] outer,RectF inset,float[] inner){radius=outer==null?0:outer[0];} public void draw(Canvas c,Paint p){c.drawRoundRect(0,0,getWidth(),getHeight(),radius,radius,p);} }

@@ -17,4 +17,6 @@ public class ContextWrapper extends Context {
     public Looper getMainLooper() { return Looper.getMainLooper(); }
     public java.io.File getFilesDir() { return mBase.getFilesDir(); }
     public java.io.File getCacheDir() { return mBase.getCacheDir(); }
+    public android.content.res.Resources.Theme getTheme() { return mBase.getTheme(); }
+    public void setTheme(int resid) { mBase.setTheme(resid); }
 }

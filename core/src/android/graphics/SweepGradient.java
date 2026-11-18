@@ -1,0 +1,1 @@
+package android.graphics; public class SweepGradient extends Shader { public SweepGradient(float x,float y,int[] colors,float[] positions){if(colors.length>0)color=colors[0];} public SweepGradient(float x,float y,int a,int b){color=a;} }

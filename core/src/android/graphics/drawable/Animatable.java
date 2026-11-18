@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public interface Animatable { void start(); void stop(); boolean isRunning(); }

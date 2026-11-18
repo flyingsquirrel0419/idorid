@@ -1,0 +1,1 @@
+package android.graphics.fonts; public class FontStyle { public static final int FONT_WEIGHT_NORMAL=400,FONT_WEIGHT_BOLD=700,FONT_SLANT_UPRIGHT=0,FONT_SLANT_ITALIC=1; private int weight,slant; public FontStyle(int w,int s){weight=w;slant=s;} public int getWeight(){return weight;} public int getSlant(){return slant;} }

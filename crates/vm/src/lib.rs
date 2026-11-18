@@ -195,6 +195,21 @@ pub trait ResourceProvider {
     fn dimen(&self, id: u32) -> Option<f32>;
     fn identifier(&self, name: &str, ty: &str) -> Option<u32>;
     fn string_array(&self, id: u32) -> Option<Vec<String>>;
+    fn style(&self, _id: u32) -> Option<Vec<(u32, String)>> {
+        None
+    }
+    fn value(&self, _id: u32) -> Option<String> {
+        None
+    }
+    fn xml(&self, _path: &str) -> Option<String> {
+        None
+    }
+    fn attr_name(&self, _id: u32) -> Option<String> {
+        None
+    }
+    fn bag_parent(&self, _id: u32) -> Option<u32> {
+        None
+    }
 }
 
 /// App-private storage supplied by the host (None = in-memory only).
@@ -239,6 +254,8 @@ pub struct Vm {
     pub text_measurer: Option<metrics::TextMeasurer>,
     /// Bitmap resource intrinsic sizes, supplied by the host crate.
     pub image_sizer: Option<metrics::ImageSizer>,
+    /// android:theme per activity class ("" = application), from the manifest.
+    pub manifest_themes: HashMap<String, u32>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -317,6 +334,7 @@ impl Vm {
             missing: None,
             text_measurer: None,
             image_sizer: None,
+            manifest_themes: HashMap::new(),
         };
         vm.add_dex(Rc::from(CORE_DEX))
             .expect("bundled core.dex is valid");
@@ -388,7 +406,9 @@ impl Vm {
             Err(LoadErr::Thrown) => Err(Throw),
             Err(LoadErr::NotFound) => {
                 let msg = match self.missing.take() {
-                    Some(m) if &*m != desc => format!("Failed resolution of: {desc} (needs missing {m})"),
+                    Some(m) if &*m != desc => {
+                        format!("Failed resolution of: {desc} (needs missing {m})")
+                    }
                     _ => format!("Failed resolution of: {desc}"),
                 };
                 self.throw_new("Ljava/lang/NoClassDefFoundError;", &msg)
@@ -1329,7 +1349,9 @@ impl Vm {
         let mut out = Vec::new();
         let mut bad_class = std::collections::HashSet::new();
         for t in 0..d.type_count() {
-            let Ok(desc) = d.type_descriptor(t) else { continue };
+            let Ok(desc) = d.type_descriptor(t) else {
+                continue;
+            };
             let base = desc.trim_start_matches('[');
             if !base.starts_with('L') {
                 continue;
@@ -1345,27 +1367,39 @@ impl Vm {
         }
         for m in 0..d.method_count() {
             let Ok(mid) = d.method_id(m) else { continue };
-            let Ok(cdesc) = d.type_descriptor(mid.class_idx as u32) else { continue };
+            let Ok(cdesc) = d.type_descriptor(mid.class_idx as u32) else {
+                continue;
+            };
             if cdesc.starts_with('[') || bad_class.contains(cdesc.as_ref()) {
                 continue;
             }
-            let Ok(c) = self.load_class(&cdesc) else { continue };
+            let Ok(c) = self.load_class(&cdesc) else {
+                continue;
+            };
             let name = d.string(mid.name_idx).unwrap_or_default();
             let sig = d.proto_signature(mid.proto_idx as u32).unwrap_or_default();
             let sid = self.sig_id(&format!("{name}{sig}"));
-            if self.find_method_in_hierarchy(c, sid).is_none() && self.find_virtual(c, sid).is_none() {
+            if self.find_method_in_hierarchy(c, sid).is_none()
+                && self.find_virtual(c, sid).is_none()
+            {
                 out.push(format!("method {cdesc}->{name}{sig}"));
             }
         }
         for f in 0..d.field_count() {
             let Ok(fid) = d.field_id(f) else { continue };
-            let Ok(cdesc) = d.type_descriptor(fid.class_idx as u32) else { continue };
+            let Ok(cdesc) = d.type_descriptor(fid.class_idx as u32) else {
+                continue;
+            };
             if bad_class.contains(cdesc.as_ref()) {
                 continue;
             }
-            let Ok(c) = self.load_class(&cdesc) else { continue };
+            let Ok(c) = self.load_class(&cdesc) else {
+                continue;
+            };
             let name = d.string(fid.name_idx).unwrap_or_default();
-            if self.find_field(c, &name, true).is_none() && self.find_field(c, &name, false).is_none() {
+            if self.find_field(c, &name, true).is_none()
+                && self.find_field(c, &name, false).is_none()
+            {
                 let ty = d.type_descriptor(fid.type_idx as u32).unwrap_or_default();
                 out.push(format!("field {cdesc}->{name}:{ty}"));
             }

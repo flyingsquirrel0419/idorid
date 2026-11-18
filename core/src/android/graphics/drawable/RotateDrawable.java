@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class RotateDrawable extends DrawableWrapper { public RotateDrawable(){super(null);} public void setFromDegrees(float d){} public void setToDegrees(float d){} public void setPivotX(float x){} public void setPivotY(float y){} }

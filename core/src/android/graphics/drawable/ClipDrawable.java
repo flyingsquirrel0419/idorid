@@ -1,0 +1,1 @@
+package android.graphics.drawable; import android.graphics.*; import android.content.res.*; public class ClipDrawable extends DrawableWrapper { public static final int HORIZONTAL=1,VERTICAL=2; public ClipDrawable(Drawable d,int gravity,int orientation){super(d);} }

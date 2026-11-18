@@ -1,0 +1,1 @@
+package android.graphics.drawable.shapes; import android.graphics.*; public class OvalShape extends RectShape { public void draw(Canvas c,Paint p){c.drawOval(0,0,getWidth(),getHeight(),p);} }

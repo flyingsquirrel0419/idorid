@@ -1,13 +1,2 @@
-package android.graphics.drawable;
-public class GradientDrawable extends Drawable {
-    public static final int RECTANGLE = 0, OVAL = 1;
-    private int color;
-    private float radius;
-    public GradientDrawable() {}
-    public void setColor(int c) { color = c; }
-    public void setCornerRadius(float r) { radius = r; }
-    public void setShape(int s) {}
-    public void setStroke(int w, int c) {}
-    public int idoridColor() { return color; }
-    public float idoridRadius() { return radius; }
-}
+package android.graphics.drawable; import android.graphics.*; import android.content.res.ColorStateList;
+public class GradientDrawable extends Drawable { public static final int RECTANGLE=0,OVAL=1,LINE=2,RING=3; public enum Orientation { TOP_BOTTOM,TR_BL,RIGHT_LEFT,BR_TL,BOTTOM_TOP,BL_TR,LEFT_RIGHT,TL_BR } private int color,shape,strokeColor,strokeWidth,width=-1,height=-1; private float radius; private int[] colors; public GradientDrawable(){} public GradientDrawable(Orientation o,int[] c){setColors(c);} public void setColor(int c){color=c;invalidateSelf();} public void setColor(ColorStateList c){setColor(c.getDefaultColor());} public void setColors(int[] c){colors=c;if(c!=null&&c.length>0)color=c[0];} public void setColors(int[] c,float[] positions){setColors(c);} public int[] getColors(){return colors;} public void setCornerRadius(float r){radius=r;} public float getCornerRadius(){return radius;} public void setCornerRadii(float[] r){radius=r==null||r.length==0?0:r[0];} public void setShape(int s){shape=s;} public int getShape(){return shape;} public void setStroke(int w,int c){strokeWidth=w;strokeColor=c;} public void setStroke(int w,ColorStateList c){setStroke(w,c.getDefaultColor());} public void setStroke(int w,int c,float dashWidth,float dashGap){setStroke(w,c);} public void setSize(int w,int h){width=w;height=h;} public int getIntrinsicWidth(){return width;} public int getIntrinsicHeight(){return height;} public int idoridColor(){return color;} public float idoridRadius(){return radius;} public void draw(Canvas c){Rect b=getBounds();Paint p=new Paint();p.setColor(idoridTint(color));p.setAlpha(p.getAlpha()*getAlpha()/255);drawShape(c,b,p);if(strokeWidth>0){p.setColor(strokeColor);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(strokeWidth);drawShape(c,b,p);}} private void drawShape(Canvas c,Rect b,Paint p){if(shape==OVAL)c.drawOval(b.left,b.top,b.right,b.bottom,p);else if(radius>0)c.drawRoundRect(b.left,b.top,b.right,b.bottom,radius,radius,p);else c.drawRect(b,p);} }
