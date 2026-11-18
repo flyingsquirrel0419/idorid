@@ -1,0 +1,2 @@
+package java.text;
+public abstract class Format implements java.io.Serializable,Cloneable {public final String format(Object o){return format(o,new StringBuffer(),new FieldPosition(0)).toString();}public abstract StringBuffer format(Object o,StringBuffer b,FieldPosition p);public abstract Object parseObject(String s,ParsePosition p);public Object parseObject(String s)throws ParseException{ParsePosition p=new ParsePosition(0);Object o=parseObject(s,p);if(p.getIndex()==0)throw new ParseException("Format.parseObject(String) failed",p.getErrorIndex());return o;}}

@@ -67,5 +67,7 @@ public class Throwable implements java.io.Serializable {
     public void printStackTrace(java.io.PrintWriter w) {
         w.println(this);
         for (StackTraceElement e : getStackTrace()) w.println("\tat " + e);
+        Throwable c = getCause();
+        if (c != null && c != this) { w.print("Caused by: "); c.printStackTrace(w); }
     }
 }

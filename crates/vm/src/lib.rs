@@ -232,6 +232,8 @@ pub struct Vm {
     pub storage: Option<Box<dyn Storage>>,
     well_known: WellKnown,
     lambdas: lambda::Lambdas,
+    /// Last descriptor that was not found (explains linkage failures).
+    missing: Option<Rc<str>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -307,6 +309,7 @@ impl Vm {
             storage: None,
             well_known: WellKnown::default(),
             lambdas: lambda::Lambdas::default(),
+            missing: None,
         };
         vm.add_dex(Rc::from(CORE_DEX))
             .expect("bundled core.dex is valid");
@@ -377,7 +380,10 @@ impl Vm {
             Ok(c) => Ok(c),
             Err(LoadErr::Thrown) => Err(Throw),
             Err(LoadErr::NotFound) => {
-                let msg = format!("Failed resolution of: {desc}");
+                let msg = match self.missing.take() {
+                    Some(m) if &*m != desc => format!("Failed resolution of: {desc} (needs missing {m})"),
+                    _ => format!("Failed resolution of: {desc}"),
+                };
                 self.throw_new("Ljava/lang/NoClassDefFoundError;", &msg)
             }
         }
@@ -437,7 +443,10 @@ impl Vm {
                 source_file: None,
             }));
         }
-        let (dex_idx, def_idx) = *self.class_index.get(desc).ok_or(LoadErr::NotFound)?;
+        let Some(&(dex_idx, def_idx)) = self.class_index.get(desc) else {
+            self.missing = Some(Rc::from(desc));
+            return Err(LoadErr::NotFound);
+        };
         self.link_dex_class(dex_idx, def_idx)
     }
 
@@ -1299,4 +1308,61 @@ enum LoadErr {
     NotFound,
     #[allow(dead_code)]
     Thrown,
+}
+
+impl Vm {
+    /// Lists framework classes, methods and fields referenced by the dex at
+    /// `dex` that the bundled class library does not provide. Used by
+    /// `idorid missing` to plan compatibility work for an app.
+    pub fn missing_report(&mut self, dex: u16) -> Vec<String> {
+        let bytes = self.dexes[dex as usize].bytes.clone();
+        let Ok(d) = Dex::parse(&bytes) else {
+            return vec!["unparsable dex".into()];
+        };
+        let mut out = Vec::new();
+        let mut bad_class = std::collections::HashSet::new();
+        for t in 0..d.type_count() {
+            let Ok(desc) = d.type_descriptor(t) else { continue };
+            let base = desc.trim_start_matches('[');
+            if !base.starts_with('L') {
+                continue;
+            }
+            self.missing = None;
+            if self.load_class(base).is_err() {
+                bad_class.insert(base.to_string());
+                match self.missing.take() {
+                    Some(m) if &*m != base => out.push(format!("class {base} (needs {m})")),
+                    _ => out.push(format!("class {base}")),
+                }
+            }
+        }
+        for m in 0..d.method_count() {
+            let Ok(mid) = d.method_id(m) else { continue };
+            let Ok(cdesc) = d.type_descriptor(mid.class_idx as u32) else { continue };
+            if cdesc.starts_with('[') || bad_class.contains(cdesc.as_ref()) {
+                continue;
+            }
+            let Ok(c) = self.load_class(&cdesc) else { continue };
+            let name = d.string(mid.name_idx).unwrap_or_default();
+            let sig = d.proto_signature(mid.proto_idx as u32).unwrap_or_default();
+            let sid = self.sig_id(&format!("{name}{sig}"));
+            if self.find_method_in_hierarchy(c, sid).is_none() && self.find_virtual(c, sid).is_none() {
+                out.push(format!("method {cdesc}->{name}{sig}"));
+            }
+        }
+        for f in 0..d.field_count() {
+            let Ok(fid) = d.field_id(f) else { continue };
+            let Ok(cdesc) = d.type_descriptor(fid.class_idx as u32) else { continue };
+            if bad_class.contains(cdesc.as_ref()) {
+                continue;
+            }
+            let Ok(c) = self.load_class(&cdesc) else { continue };
+            let name = d.string(fid.name_idx).unwrap_or_default();
+            if self.find_field(c, &name, true).is_none() && self.find_field(c, &name, false).is_none() {
+                let ty = d.type_descriptor(fid.type_idx as u32).unwrap_or_default();
+                out.push(format!("field {cdesc}->{name}:{ty}"));
+            }
+        }
+        out
+    }
 }

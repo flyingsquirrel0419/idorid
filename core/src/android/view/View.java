@@ -39,7 +39,6 @@ public class View {
     protected OnClickListener mOnClickListener;
     private OnLongClickListener longClick;
     private OnTouchListener touchListener;
-    private int mWidth, mHeight;
     private static boolean dirty;
     private OnFocusChangeListener focusListener;
 
@@ -102,7 +101,7 @@ public class View {
     public final ViewParent getParent() { return mParent; }
     public View getRootView() { View v = this; while (v.mParent instanceof View) v = (View) v.mParent; return v; }
     public ViewGroup.LayoutParams getLayoutParams() { return mLayoutParams; }
-    public void setLayoutParams(ViewGroup.LayoutParams p) { mLayoutParams = p; }
+    public void setLayoutParams(ViewGroup.LayoutParams p) { if (p == null) throw new NullPointerException("Layout parameters cannot be null"); mLayoutParams = p; requestLayout(); }
 
     public void setOnClickListener(OnClickListener l) { if (l != null) clickable = true; mOnClickListener = l; }
     public boolean hasOnClickListeners() { return mOnClickListener != null; }
@@ -113,8 +112,6 @@ public class View {
     public void setOnFocusChangeListener(OnFocusChangeListener l) { focusListener = l; }
     public OnFocusChangeListener getOnFocusChangeListener() { return focusListener; }
     public void setOnKeyListener(OnKeyListener l) {}
-    public void addOnLayoutChangeListener(OnLayoutChangeListener l) {}
-    public void removeOnLayoutChangeListener(OnLayoutChangeListener l) {}
     public void addOnAttachStateChangeListener(OnAttachStateChangeListener l) {}
     public boolean performClick() {
         if (mOnClickListener != null) { mOnClickListener.onClick(this); return true; }
@@ -122,7 +119,7 @@ public class View {
     }
     public boolean callOnClick() { return performClick(); }
     public boolean performLongClick() { return longClick != null && longClick.onLongClick(this); }
-    public void setVisibility(int v) { visibility = v; }
+    public void setVisibility(int v) { if (v != visibility) { boolean gone = v == GONE || visibility == GONE; visibility = v; if (gone) requestLayout(); } }
     public int getVisibility() { return visibility; }
     public boolean isShown() { return visibility == VISIBLE; }
     public void setEnabled(boolean e) { enabled = e; }
@@ -140,7 +137,7 @@ public class View {
     public void clearFocus() {}
     public boolean hasFocus() { return false; }
     public boolean isFocused() { return false; }
-    public void setPadding(int l, int t, int r, int b) { pl = l; pt = t; pr = r; pb = b; }
+    public void setPadding(int l, int t, int r, int b) { if (l != pl || t != pt || r != pr || b != pb) { pl = l; pt = t; pr = r; pb = b; requestLayout(); } }
     public void setPaddingRelative(int s, int t, int e, int b) { setPadding(s, t, e, b); }
     public int getPaddingLeft() { return pl; }
     public int getPaddingTop() { return pt; }
@@ -159,13 +156,8 @@ public class View {
     public void setAlpha(float a) { alpha = a; }
     public float getAlpha() { return alpha; }
     public void setElevation(float e) {}
-    public void setTranslationX(float x) {}
-    public void setTranslationY(float y) {}
-    public void setRotation(float r) {}
-    public void setScaleX(float s) {}
-    public void setScaleY(float s) {}
-    public void setMinimumWidth(int w) { minW = w; }
-    public void setMinimumHeight(int h) { minH = h; }
+    public void setMinimumWidth(int w) { minW = w; requestLayout(); }
+    public void setMinimumHeight(int h) { minH = h; requestLayout(); }
     public void setTag(Object t) { tag = t; }
     public Object getTag() { return tag; }
     public void setTag(int key, Object t) { if (keyedTags == null) keyedTags = new android.util.SparseArray<Object>(); keyedTags.put(key, t); }
@@ -184,19 +176,147 @@ public class View {
     protected void onSizeChanged(int w,int h,int oldw,int oldh) {}
     protected void onDraw(android.graphics.Canvas c) {}
     public void draw(android.graphics.Canvas c) { onDraw(c); }
-    public void idoridSetSize(int w,int h) { if(w != mWidth || h != mHeight) { int ow=mWidth, oh=mHeight; mWidth=w; mHeight=h; onSizeChanged(w,h,ow,oh); } }
-    public void requestLayout() {}
-    public void forceLayout() {}
-    public int getWidth() { return mWidth; }
-    public int getHeight() { return mHeight; }
-    public int getMeasuredWidth() { return mWidth; }
-    public int getMeasuredHeight() { return mHeight; }
-    public int getRight() { return mWidth; }
-    public int getBottom() { return mHeight; }
-    public int getLeft() { return 0; }
-    public int getTop() { return 0; }
-    public float getX() { return 0; }
-    public float getY() { return 0; }
+    /** idorid: host-reported size (legacy path; layout normally sets the frame). */
+    public void idoridSetSize(int w,int h) { if (w != getWidth() || h != getHeight()) setFrame(mLeft, mTop, mLeft + w, mTop + h); }
+
+    // ---------------------------------------------------------------- measure/layout
+    public static class MeasureSpec {
+        private static final int MODE_SHIFT = 30, MODE_MASK = 3 << MODE_SHIFT;
+        public static final int UNSPECIFIED = 0, EXACTLY = 1 << MODE_SHIFT, AT_MOST = 2 << MODE_SHIFT;
+        public static int makeMeasureSpec(int size, int mode) { return (size & ~MODE_MASK) | (mode & MODE_MASK); }
+        public static int makeSafeMeasureSpec(int size, int mode) { return makeMeasureSpec(size, mode); }
+        public static int getMode(int spec) { return spec & MODE_MASK; }
+        public static int getSize(int spec) { return spec & ~MODE_MASK; }
+        public static String toString(int spec) {
+            int m = getMode(spec);
+            return "MeasureSpec: " + (m == EXACTLY ? "EXACTLY " : m == AT_MOST ? "AT_MOST " : "UNSPECIFIED ") + getSize(spec);
+        }
+    }
+    public static final int MEASURED_SIZE_MASK = 0x00ffffff, MEASURED_STATE_MASK = 0xff000000, MEASURED_HEIGHT_STATE_SHIFT = 16, MEASURED_STATE_TOO_SMALL = 0x01000000;
+
+    int mLeft, mTop, mRight, mBottom;
+    private int mMeasuredWidth, mMeasuredHeight;
+    private int mOldWidthSpec = Integer.MIN_VALUE, mOldHeightSpec = Integer.MIN_VALUE;
+    boolean mForceLayout = true, mLayoutRequired = true;
+    private boolean measuredCalled;
+    int mScrollX, mScrollY;
+    private float translationX, translationY, scaleX = 1, scaleY = 1, rotation;
+    private java.util.ArrayList<OnLayoutChangeListener> layoutListeners;
+    private static boolean sLayoutRequested = true;
+    /** idorid: true once since the last call when any view asked for layout. */
+    public static boolean idoridTakeLayoutRequest() { boolean r = sLayoutRequested; sLayoutRequested = false; return r; }
+
+    public final void measure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (mForceLayout || widthMeasureSpec != mOldWidthSpec || heightMeasureSpec != mOldHeightSpec) {
+            measuredCalled = false;
+            onMeasure(widthMeasureSpec, heightMeasureSpec);
+            if (!measuredCalled) throw new IllegalStateException("View with id " + getId() + ": " + getClass().getName() + "#onMeasure() did not set the measured dimension by calling setMeasuredDimension()");
+            mOldWidthSpec = widthMeasureSpec;
+            mOldHeightSpec = heightMeasureSpec;
+            mLayoutRequired = true;
+        }
+    }
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        setMeasuredDimension(getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec), getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec));
+    }
+    protected final void setMeasuredDimension(int w, int h) { mMeasuredWidth = w; mMeasuredHeight = h; measuredCalled = true; }
+    public static int getDefaultSize(int size, int spec) {
+        int mode = MeasureSpec.getMode(spec), s = MeasureSpec.getSize(spec);
+        return mode == MeasureSpec.UNSPECIFIED ? size : s;
+    }
+    public static int resolveSize(int size, int spec) { return resolveSizeAndState(size, spec, 0) & MEASURED_SIZE_MASK; }
+    public static int resolveSizeAndState(int size, int spec, int childState) {
+        int mode = MeasureSpec.getMode(spec), s = MeasureSpec.getSize(spec);
+        int result;
+        if (mode == MeasureSpec.AT_MOST) result = s < size ? (s | MEASURED_STATE_TOO_SMALL) : size;
+        else if (mode == MeasureSpec.EXACTLY) result = s;
+        else result = size;
+        return result | (childState & MEASURED_STATE_MASK);
+    }
+    public static int combineMeasuredStates(int a, int b) { return a | b; }
+    protected int getSuggestedMinimumWidth() { return minW; }
+    protected int getSuggestedMinimumHeight() { return minH; }
+    public int getMinimumWidth() { return minW; }
+    public int getMinimumHeight() { return minH; }
+    public final int getMeasuredWidth() { return mMeasuredWidth & MEASURED_SIZE_MASK; }
+    public final int getMeasuredHeight() { return mMeasuredHeight & MEASURED_SIZE_MASK; }
+    public final int getMeasuredWidthAndState() { return mMeasuredWidth; }
+    public final int getMeasuredHeightAndState() { return mMeasuredHeight; }
+    public final int getMeasuredState() { return (mMeasuredWidth & MEASURED_STATE_MASK) | ((mMeasuredHeight >> MEASURED_HEIGHT_STATE_SHIFT) & (MEASURED_STATE_MASK >> MEASURED_HEIGHT_STATE_SHIFT)); }
+
+    public void layout(int l, int t, int r, int b) {
+        int ol = mLeft, ot = mTop, or = mRight, ob = mBottom;
+        boolean changed = setFrame(l, t, r, b);
+        if (changed || mLayoutRequired) {
+            onLayout(changed, l, t, r, b);
+            mLayoutRequired = false;
+            if (layoutListeners != null) for (OnLayoutChangeListener li : new java.util.ArrayList<OnLayoutChangeListener>(layoutListeners)) li.onLayoutChange(this, l, t, r, b, ol, ot, or, ob);
+        }
+        mForceLayout = false;
+    }
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {}
+    protected boolean setFrame(int l, int t, int r, int b) {
+        if (mLeft == l && mTop == t && mRight == r && mBottom == b) return false;
+        int ow = mRight - mLeft, oh = mBottom - mTop, nw = r - l, nh = b - t;
+        mLeft = l; mTop = t; mRight = r; mBottom = b;
+        if (nw != ow || nh != oh) { onSizeChanged(nw, nh, ow, oh); invalidate(); }
+        return true;
+    }
+    public void requestLayout() {
+        mForceLayout = true;
+        mLayoutRequired = true;
+        sLayoutRequested = true;
+        if (mParent instanceof View && !((View) mParent).mForceLayout) ((View) mParent).requestLayout();
+    }
+    public void forceLayout() { mForceLayout = true; mLayoutRequired = true; }
+    public boolean isLayoutRequested() { return mForceLayout; }
+    public boolean isInLayout() { return false; }
+    public boolean isLaidOut() { return mRight > mLeft || mBottom > mTop; }
+    public final int getWidth() { return mRight - mLeft; }
+    public final int getHeight() { return mBottom - mTop; }
+    public final int getLeft() { return mLeft; }
+    public final int getTop() { return mTop; }
+    public final int getRight() { return mRight; }
+    public final int getBottom() { return mBottom; }
+    public final void setLeft(int l) { setFrame(l, mTop, mRight, mBottom); }
+    public final void setTop(int t) { setFrame(mLeft, t, mRight, mBottom); }
+    public final void setRight(int r) { setFrame(mLeft, mTop, r, mBottom); }
+    public final void setBottom(int b) { setFrame(mLeft, mTop, mRight, b); }
+    public void offsetLeftAndRight(int d) { mLeft += d; mRight += d; }
+    public void offsetTopAndBottom(int d) { mTop += d; mBottom += d; }
+    public float getX() { return mLeft + translationX; }
+    public float getY() { return mTop + translationY; }
+    public void setX(float x) { translationX = x - mLeft; }
+    public void setY(float y) { translationY = y - mTop; }
+    public void setTranslationX(float x) { translationX = x; }
+    public void setTranslationY(float y) { translationY = y; }
+    public void setRotation(float r) { rotation = r; }
+    public void setScaleX(float s) { scaleX = s; }
+    public void setScaleY(float s) { scaleY = s; }
+    public float getTranslationX() { return translationX; }
+    public float getTranslationY() { return translationY; }
+    public float getScaleX() { return scaleX; }
+    public float getScaleY() { return scaleY; }
+    public float getRotation() { return rotation; }
+    public int getScrollX() { return mScrollX; }
+    public int getScrollY() { return mScrollY; }
+    public void scrollTo(int x, int y) { if (x != mScrollX || y != mScrollY) { int ox = mScrollX, oy = mScrollY; mScrollX = x; mScrollY = y; onScrollChanged(x, y, ox, oy); invalidate(); } }
+    public void scrollBy(int x, int y) { scrollTo(mScrollX + x, mScrollY + y); }
+    protected void onScrollChanged(int l, int t, int oldl, int oldt) {}
+    public void addOnLayoutChangeListener(OnLayoutChangeListener l) { if (layoutListeners == null) layoutListeners = new java.util.ArrayList<OnLayoutChangeListener>(); layoutListeners.add(l); }
+    public void removeOnLayoutChangeListener(OnLayoutChangeListener l) { if (layoutListeners != null) layoutListeners.remove(l); }
+    public void getLocationOnScreen(int[] out) { getLocationInWindow(out); }
+    public void getLocationInWindow(int[] out) {
+        int x = 0, y = 0;
+        View v = this;
+        while (v != null) { x += v.mLeft - (v == this ? 0 : v.mScrollX); y += v.mTop - (v == this ? 0 : v.mScrollY); v = v.mParent instanceof View ? (View) v.mParent : null; }
+        out[0] = x; out[1] = y;
+    }
+    public boolean getGlobalVisibleRect(android.graphics.Rect r) { int[] p = new int[2]; getLocationInWindow(p); r.set(p[0], p[1], p[0] + getWidth(), p[1] + getHeight()); return getWidth() > 0 && getHeight() > 0; }
+    public boolean getLocalVisibleRect(android.graphics.Rect r) { r.set(0, 0, getWidth(), getHeight()); return getWidth() > 0 && getHeight() > 0; }
+    public void getHitRect(android.graphics.Rect r) { r.set(mLeft, mTop, mRight, mBottom); }
+    public void getDrawingRect(android.graphics.Rect r) { r.set(mScrollX, mScrollY, mScrollX + getWidth(), mScrollY + getHeight()); }
+    public int getBaseline() { return -1; }
     public ViewTreeObserver getViewTreeObserver() { return new ViewTreeObserver(); }
     public boolean isAttachedToWindow() { return mParent != null; }
     public android.os.IBinder getWindowToken() { return null; }
@@ -211,8 +331,6 @@ public class View {
     public void setOverScrollMode(int m) {}
     public void setVerticalScrollBarEnabled(boolean b) {}
     public void setHorizontalScrollBarEnabled(boolean b) {}
-    public void scrollTo(int x, int y) {}
-    public void scrollBy(int x, int y) {}
     public void setSystemUiVisibility(int v) {}
     public View getFocusedChild() { return null; }
     public ViewPropertyAnimator animate() { return new ViewPropertyAnimator(this); }
@@ -257,7 +375,7 @@ public class View {
             }
         }
         if (touchListener != null || VMViews.overridesOnTouch(this)) { Json.key(sb, "touch"); sb.append("true"); }
-        if (VMViews.overridesOnDraw(this)) { Json.key(sb, "draw"); android.graphics.Canvas c = new android.graphics.Canvas(mWidth,mHeight); if (visibility == VISIBLE && mWidth > 0 && mHeight > 0) draw(c); sb.append(c.idoridOps()); }
+        if (VMViews.overridesOnDraw(this)) { Json.key(sb, "draw"); android.graphics.Canvas c = new android.graphics.Canvas(getWidth(),getHeight()); if (visibility == VISIBLE && getWidth() > 0 && getHeight() > 0) draw(c); sb.append(c.idoridOps()); }
         idoridProps(sb);
         sb.append('}');
     }

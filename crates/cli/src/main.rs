@@ -9,7 +9,7 @@ fn usage() -> ExitCode {
     eprintln!(
         "usage:\n  idorid main <file.dex|file.apk>... <MainClass>   run static main(String[])\n  idorid run <app.apk> [script...]                 launch an app headless; commands from args or stdin:
                                                    size <id> <w> <h> | touch <id> <action> <x> <y> | click <id> | type <id> <text> | back | tick | json | log | quit
-  idorid dump <file.dex>                           list classes and methods\n\nflags: --stats  print instruction count, GC and timing"
+  idorid dump <file.dex>                           list classes and methods\n  idorid missing <app.apk|dex>...                  framework classes/methods/fields the app needs but core lacks\n\nflags: --stats  print instruction count, GC and timing"
     );
     ExitCode::from(2)
 }
@@ -35,6 +35,28 @@ fn main() -> ExitCode {
         return usage();
     };
     match cmd.as_str() {
+        "missing" if args.len() >= 2 => {
+            // Framework APIs referenced by the app but absent from core.dex.
+            let mut vm = Vm::new();
+            let first = vm.dexes.len() as u16;
+            for p in &args[1..] {
+                if let Err(e) = load(&mut vm, p) {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+            let mut all = Vec::new();
+            for d in first..vm.dexes.len() as u16 {
+                all.extend(vm.missing_report(d));
+            }
+            all.sort();
+            all.dedup();
+            for l in &all {
+                println!("{l}");
+            }
+            eprintln!("{} missing", all.len());
+            ExitCode::SUCCESS
+        }
         "main" if args.len() >= 3 => {
             let t0 = std::time::Instant::now();
             let mut vm = Vm::new();
