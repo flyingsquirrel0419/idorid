@@ -1,0 +1,2 @@
+package java.util.concurrent.locks;
+public final class LockSupport {private LockSupport(){}public static void unpark(Thread t){}public static void park(){java.lang.VMThread.runPending();}public static void park(Object blocker){park();}public static void parkNanos(long n){if(n>0)park();}public static void parkNanos(Object blocker,long n){parkNanos(n);}public static void parkUntil(long n){park();}public static void parkUntil(Object blocker,long n){parkUntil(n);}public static Object getBlocker(Thread t){if(t==null)throw new NullPointerException();return null;}}

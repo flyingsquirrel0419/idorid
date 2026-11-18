@@ -1,0 +1,4 @@
+package java.util.concurrent.locks;
+import java.util.concurrent.TimeUnit;
+import java.util.Date;
+public interface Condition {void await()throws InterruptedException;void awaitUninterruptibly();long awaitNanos(long n)throws InterruptedException;boolean await(long n,TimeUnit u)throws InterruptedException;boolean awaitUntil(Date d)throws InterruptedException;void signal();void signalAll();}

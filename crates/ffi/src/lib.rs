@@ -170,6 +170,45 @@ impl ResourceProvider for ApkResources {
     }
 }
 
+/// Files under `<root>/<package>/` (paths from the VM are sanitized).
+pub struct DirStorage {
+    root: std::path::PathBuf,
+}
+
+impl DirStorage {
+    pub fn new(root: impl Into<std::path::PathBuf>) -> DirStorage {
+        DirStorage { root: root.into() }
+    }
+    fn path(&self, rel: &str) -> Option<std::path::PathBuf> {
+        let mut p = self.root.clone();
+        for part in rel.split('/') {
+            if part.is_empty() || part == "." || part == ".." || part.contains('\\') {
+                return None;
+            }
+            p.push(part);
+        }
+        Some(p)
+    }
+}
+
+impl idorid_vm::Storage for DirStorage {
+    fn load(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(self.path(path)?).ok()
+    }
+    fn save(&self, path: &str, data: &str) -> bool {
+        let Some(p) = self.path(path) else {
+            return false;
+        };
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let tmp = p.with_extension("tmp");
+        std::fs::write(&tmp, data)
+            .and_then(|_| std::fs::rename(&tmp, &p))
+            .is_ok()
+    }
+}
+
 /// A loaded Android app.
 pub struct App {
     pub vm: Vm,
@@ -310,6 +349,11 @@ impl App {
     pub fn ui(&mut self) -> String {
         self.call("ui()Ljava/lang/String;", &[])
     }
+    /// Persist app data under `<dir>/<package>/`.
+    pub fn set_data_dir(&mut self, dir: &str) {
+        let root = std::path::Path::new(dir).join(&self.manifest.package);
+        self.vm.storage = Some(Box::new(DirStorage::new(root)));
+    }
     pub fn take_log(&mut self) -> String {
         std::mem::take(&mut *self.log.borrow_mut())
     }
@@ -435,6 +479,13 @@ vm_fn!(idorid_vm_back() => |app| app.back());
 vm_fn!(idorid_vm_tick() => |app| app.tick());
 vm_fn!(idorid_vm_take_log() => |app| app.take_log());
 vm_fn!(idorid_vm_info() => |app| app.info_json());
+vm_fn!(idorid_vm_set_data_dir(path: *const c_char) => |app| {
+    if !path.is_null() {
+        let p = CStr::from_ptr(path).to_string_lossy().into_owned();
+        app.set_data_dir(&p);
+    }
+    String::from("{}")
+});
 vm_fn!(idorid_vm_set_text(view_id: i32, utf8: *const c_char) => |app| {
     let text = if utf8.is_null() { String::new() } else { CStr::from_ptr(utf8).to_string_lossy().into_owned() };
     app.set_text(view_id, &text)

@@ -21,6 +21,26 @@ fn mirror_class(vm: &Vm, r: u32) -> Option<crate::ClassId> {
 
 pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
     m.insert(
+        "Landroid/content/VMStorage;->load(Ljava/lang/String;)Ljava/lang/String;",
+        |vm, a| {
+            let path = vm.rust_string(a[0]).unwrap_or_default();
+            let s = vm.storage.as_ref().and_then(|st| st.load(&path));
+            Ok(opt_str(vm, s))
+        },
+    );
+    m.insert(
+        "Landroid/content/VMStorage;->save(Ljava/lang/String;Ljava/lang/String;)Z",
+        |vm, a| {
+            let path = vm.rust_string(a[0]).unwrap_or_default();
+            let data = vm.rust_string(a[1]).unwrap_or_default();
+            Ok(vm
+                .storage
+                .as_ref()
+                .map(|st| st.save(&path, &data))
+                .unwrap_or(false) as u64)
+        },
+    );
+    m.insert(
         "Landroid/util/Log;->nativeWrite(ILjava/lang/String;Ljava/lang/String;)V",
         |vm, a| {
             let level = match a[0] {

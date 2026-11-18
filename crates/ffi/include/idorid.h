@@ -10,6 +10,9 @@ extern "C" {
 
 typedef struct IdoridVm IdoridVm;
 IdoridVm *idorid_vm_new(const uint8_t *apk, size_t len, char **err);
+// Directory for app-private data (SharedPreferences); call before launch.
+// Data goes to <dir>/<package>/. Returns "{}".
+char *idorid_vm_set_data_dir(IdoridVm *vm, const char *dir);
 char *idorid_vm_launch(IdoridVm *vm);
 char *idorid_vm_click(IdoridVm *vm, int32_t view_id);
 char *idorid_vm_set_text(IdoridVm *vm, int32_t view_id, const char *utf8);

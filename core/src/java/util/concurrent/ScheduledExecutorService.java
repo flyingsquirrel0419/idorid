@@ -1,0 +1,2 @@
+package java.util.concurrent;
+public interface ScheduledExecutorService extends ExecutorService {ScheduledFuture<?> schedule(Runnable r,long delay,TimeUnit unit);<V> ScheduledFuture<V> schedule(Callable<V> c,long delay,TimeUnit unit);ScheduledFuture<?> scheduleAtFixedRate(Runnable r,long initialDelay,long period,TimeUnit unit);ScheduledFuture<?> scheduleWithFixedDelay(Runnable r,long initialDelay,long delay,TimeUnit unit);}

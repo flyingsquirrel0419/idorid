@@ -105,6 +105,7 @@ version = "0.1.0"
 dependencies = [
  "idorid-apk",
  "idorid-vm",
+ "serde_json",
 ]
 
 [[package]]

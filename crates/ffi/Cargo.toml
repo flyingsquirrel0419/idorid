@@ -11,3 +11,6 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 idorid-vm = { path = "../vm" }
 idorid-apk = { path = "../apk" }
+
+[dev-dependencies]
+serde_json = "1"

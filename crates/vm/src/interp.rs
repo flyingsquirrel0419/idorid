@@ -404,14 +404,14 @@ impl Vm {
                             count = b;
                             let rw = insns[pc + 2] as usize;
                             let list = [rw & 0xf, (rw >> 4) & 0xf, (rw >> 8) & 0xf, rw >> 12, a];
-                            for i in 0..count {
-                                vals[i] = r!(list[i]);
+                            for (slot, &reg) in vals.iter_mut().zip(&list[..count]) {
+                                *slot = r!(reg);
                             }
                         } else {
                             count = aa;
                             let first = w!(2) as usize;
-                            for i in 0..count {
-                                vals[i] = r!(first + i);
+                            for (i, slot) in vals.iter_mut().enumerate().take(count) {
+                                *slot = r!(first + i);
                             }
                         }
                         self.maybe_gc();

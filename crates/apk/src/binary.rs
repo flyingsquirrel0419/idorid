@@ -61,7 +61,7 @@ pub(crate) fn pool(d: &[u8]) -> Result<Vec<String>, ApkError> {
             let n = len(d, &mut p)?;
             let end = p.checked_add(n).ok_or_else(err)?;
             let bytes = d.get(p..end).filter(|_| end < s).ok_or_else(err)?;
-            out.push(std::str::from_utf8(bytes).map_err(|_| err())?.to_owned());
+            out.push(decode_utf8(bytes));
         } else {
             fn len(d: &[u8], p: &mut usize) -> Result<usize, ApkError> {
                 let a = u16at(d, *p)?;
@@ -85,7 +85,7 @@ pub(crate) fn pool(d: &[u8]) -> Result<Vec<String>, ApkError> {
             for j in 0..n {
                 chars.push(u16at(d, p + j * 2)?)
             }
-            out.push(String::from_utf16(&chars).map_err(|_| err())?);
+            out.push(String::from_utf16_lossy(&chars));
         }
     }
     Ok(out)
@@ -95,5 +95,57 @@ pub(crate) fn str_at(pool: &[String], i: u32) -> Option<&str> {
         None
     } else {
         pool.get(i as usize).map(String::as_str)
+    }
+}
+
+/// UTF-8 as written by aapt/aapt2: supplementary characters may be encoded as
+/// CESU-8 surrogate pairs, so fall back to a lenient decoder.
+fn decode_utf8(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_owned();
+    }
+    let mut units: Vec<u16> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let a = bytes[i] as u32;
+        let (cp, n) = if a < 0x80 {
+            (a, 1)
+        } else if a & 0xe0 == 0xc0 && i + 1 < bytes.len() {
+            (((a & 0x1f) << 6) | (bytes[i + 1] as u32 & 0x3f), 2)
+        } else if a & 0xf0 == 0xe0 && i + 2 < bytes.len() {
+            (
+                ((a & 0x0f) << 12)
+                    | ((bytes[i + 1] as u32 & 0x3f) << 6)
+                    | (bytes[i + 2] as u32 & 0x3f),
+                3,
+            )
+        } else if a & 0xf8 == 0xf0 && i + 3 < bytes.len() {
+            (
+                ((a & 0x07) << 18)
+                    | ((bytes[i + 1] as u32 & 0x3f) << 12)
+                    | ((bytes[i + 2] as u32 & 0x3f) << 6)
+                    | (bytes[i + 3] as u32 & 0x3f),
+                4,
+            )
+        } else {
+            (0xfffd, 1)
+        };
+        if let Some(c) = char::from_u32(cp).filter(|_| cp >= 0x10000) {
+            units.extend_from_slice(c.encode_utf16(&mut [0; 2]));
+        } else {
+            units.push(cp as u16);
+        }
+        i += n;
+    }
+    String::from_utf16_lossy(&units)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cesu8_emoji() {
+        // U+1F389 as a CESU-8 surrogate pair
+        let b = [0x41, 0xed, 0xa0, 0xbc, 0xed, 0xbe, 0x89];
+        assert_eq!(super::decode_utf8(&b), "A\u{1F389}");
     }
 }

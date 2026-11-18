@@ -186,6 +186,12 @@ pub trait ResourceProvider {
     fn string_array(&self, id: u32) -> Option<Vec<String>>;
 }
 
+/// App-private storage supplied by the host (None = in-memory only).
+pub trait Storage {
+    fn load(&self, path: &str) -> Option<String>;
+    fn save(&self, path: &str, data: &str) -> bool;
+}
+
 /// Output sink: (fd, text). fd 1 = stdout, 2 = stderr, 3 = logcat.
 pub type OutputFn = Box<dyn FnMut(i32, &str)>;
 
@@ -213,6 +219,7 @@ pub struct Vm {
     pub instructions: u64,
     pub host: Box<dyn std::any::Any>,
     pub resources: Option<Box<dyn ResourceProvider>>,
+    pub storage: Option<Box<dyn Storage>>,
     well_known: WellKnown,
 }
 
@@ -286,6 +293,7 @@ impl Vm {
             instructions: 0,
             host: Box::new(()),
             resources: None,
+            storage: None,
             well_known: WellKnown::default(),
         };
         vm.add_dex(Rc::from(CORE_DEX))

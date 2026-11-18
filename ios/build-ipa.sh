@@ -24,6 +24,9 @@ xcrun -sdk "$sdk" swiftc -sdk "$(xcrun --sdk "$sdk" --show-sdk-path)" \
   -framework UIKit -framework UniformTypeIdentifiers -framework Security -framework SystemConfiguration -lc++ \
   ios/Sources/*.swift -o "$app/idorid"
 cp ios/Info.plist "$app/Info.plist"
+mkdir -p "$app/Examples"
+cp examples/*.apk "$app/Examples/" 2>/dev/null || true
+cp tests/fixtures/sample.apk "$app/Examples/Hello Sample.apk" 2>/dev/null || true
 printf 'APPL????' > "$app/PkgInfo"
 if [[ "${SIMULATOR:-0}" != "1" ]]; then
   rm -f build/idorid.ipa

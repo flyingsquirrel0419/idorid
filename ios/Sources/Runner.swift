@@ -45,7 +45,11 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             guard let self = self, !self.closing else { return }
             if let error = error { self.showError(error); return }
             self.opened = true
-            self.send { idorid_vm_launch($0) }
+            let data = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("data", isDirectory: true).path
+            self.send { vm in
+                if let r = data.withCString({ idorid_vm_set_data_dir(vm, $0) }) { idorid_string_free(r) }
+                return idorid_vm_launch(vm)
+            }
         }
     }
     override func viewWillAppear(_ animated: Bool) {
@@ -294,6 +298,19 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
                 self?.send { idorid_vm_set_progress($0, id, value) }
             }, for: [.touchUpInside, .touchUpOutside])
             result = slider
+        case "Spinner":
+            let button = UIButton(type: .system)
+            let items = node["items"] as? [[String: Any]] ?? []
+            let selected = (node["selected"] as? NSNumber)?.intValue ?? -1
+            let title = selected >= 0 && selected < items.count ? (items[selected]["text"] as? String ?? "") : "Select"
+            button.setTitle(title + " ▾", for: .normal)
+            button.contentHorizontalAlignment = .leading
+            button.menu = UIMenu(children: items.enumerated().map { index, item in
+                let id = (item["id"] as? NSNumber)?.int32Value ?? 0
+                return UIAction(title: item["text"] as? String ?? "", state: index == selected ? .on : .off) { [weak self] _ in self?.send { idorid_vm_click($0, id) } }
+            })
+            button.showsMenuAsPrimaryAction = true
+            result = button
         case "ImageButton":
             let button = UIButton(type: .system)
             button.setImage(UIImage(systemName: "photo"), for: .normal)
@@ -360,7 +377,7 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         if let alpha = node["alpha"] as? NSNumber { outer.alpha = CGFloat(alpha.doubleValue) }
         outer.isHidden = (node["visible"] as? Bool) == false
         if node["visible"] as? String == "invisible" { outer.alpha = 0 }
-        if node["clickable"] as? Bool == true, !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar"].contains(type), let id = (node["id"] as? NSNumber)?.int32Value {
+        if node["clickable"] as? Bool == true, !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar", "Spinner"].contains(type), let id = (node["id"] as? NSNumber)?.int32Value {
             outer.isUserInteractionEnabled = true
             outer.addGestureRecognizer(ClosureTap { [weak self] in self?.send { idorid_vm_click($0, id) } })
         }

@@ -1,0 +1,91 @@
+//! End-to-end: real APKs built with the stock Android SDK, driven headless.
+
+use idorid_ffi::App;
+
+fn load(path: &str) -> App {
+    let p = format!("{}/../../{path}", env!("CARGO_MANIFEST_DIR"));
+    App::load(
+        std::fs::read(&p).unwrap_or_else(|e| panic!("{p}: {e}")),
+        false,
+    )
+    .expect("load")
+}
+
+fn ui(json: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(json).expect("valid json");
+    assert!(v["error"].is_null(), "app error: {}", v["error"]);
+    v
+}
+
+/// Depth-first search for the first view matching `pred`.
+fn find<'a>(
+    v: &'a serde_json::Value,
+    pred: &dyn Fn(&serde_json::Value) -> bool,
+) -> Option<&'a serde_json::Value> {
+    if pred(v) {
+        return Some(v);
+    }
+    v["children"].as_array()?.iter().find_map(|c| find(c, pred))
+}
+
+fn by_text<'a>(v: &'a serde_json::Value, text: &str) -> &'a serde_json::Value {
+    find(&v["root"], &|n| n["text"].as_str() == Some(text))
+        .unwrap_or_else(|| panic!("no view with text {text:?} in {v}"))
+}
+
+fn by_type<'a>(v: &'a serde_json::Value, ty: &str) -> &'a serde_json::Value {
+    find(&v["root"], &|n| n["type"].as_str() == Some(ty))
+        .unwrap_or_else(|| panic!("no {ty} in {v}"))
+}
+
+fn id(v: &serde_json::Value) -> i32 {
+    v["id"].as_i64().unwrap() as i32
+}
+
+#[test]
+fn sample_app_counts_taps() {
+    let mut app = load("tests/fixtures/sample.apk");
+    assert_eq!(app.label, "Idorid Sample");
+    let v = ui(&app.launch());
+    by_text(&v, "Hello from Android");
+    let field = id(by_type(&v, "EditText"));
+    let button = id(by_text(&v, "Tap"));
+    ui(&app.set_text(field, "Kim"));
+    ui(&app.click(button));
+    let v = ui(&app.click(button));
+    by_text(&v, "Tapped 2, Kim");
+    assert!(app.take_log().contains("I/Sample: Tapped 2, Kim"));
+    let v = ui(&app.back());
+    assert_eq!(v["finished"], true);
+}
+
+#[test]
+fn todo_app_full_flow() {
+    let mut app = load("examples/todo.apk");
+    let v = ui(&app.launch());
+    by_text(&v, "2 open · running for 0s");
+    // add a task
+    ui(&app.set_text(id(by_type(&v, "EditText")), "Buy milk"));
+    let v = ui(&app.click(id(by_text(&v, "Add"))));
+    by_text(&v, "• Buy milk");
+    assert_eq!(v["toasts"][0], "Added \"Buy milk\"");
+    // complete it through the dialog
+    let v = ui(&app.click(id(by_text(&v, "• Buy milk"))));
+    assert_eq!(v["dialog"]["title"], "Done?");
+    let v = ui(&app.click(-1));
+    assert!(v.get("dialog").is_none());
+    by_text(&v, "2 open · running for 0s");
+    // filter
+    let v = ui(&app.click(id(by_type(&v, "CheckBox"))));
+    assert!(find(&v["root"], &|n| n["text"].as_str()
+        == Some("• Star the repo"))
+    .is_none());
+    // second activity with extras
+    let v = ui(&app.click(id(by_text(&v, "About"))));
+    assert_eq!(v["title"], "About");
+    by_text(&v, "Open tasks: 2\nAndroid API 34 on idorid");
+    let v = ui(&app.back());
+    by_text(&v, "Todo (Android)");
+    // delayed handler messages report when to tick next
+    assert!(v["next"].as_i64().unwrap() >= 0);
+}

@@ -198,6 +198,9 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         }
     };
     let raw = std::env::var("IDORID_JSON").is_ok();
+    if let Ok(dir) = std::env::var("IDORID_DATA") {
+        app.set_data_dir(&dir);
+    }
     let ui = app.launch();
     let launch_time = t0.elapsed();
     show(&ui, raw);

@@ -1,0 +1,2 @@
+package java.util;
+public abstract class TimerTask implements Runnable {private boolean cancelled,scheduled;private long time;protected TimerTask(){}public abstract void run();public boolean cancel(){boolean r=scheduled&&!cancelled;cancelled=true;return r;}public long scheduledExecutionTime(){return time;}void schedule(long t){if(cancelled||scheduled)throw new IllegalStateException();scheduled=true;time=t;}}

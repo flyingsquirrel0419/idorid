@@ -1,0 +1,6 @@
+package java.util.concurrent;
+public class ScheduledThreadPoolExecutor extends ThreadPoolExecutor implements ScheduledExecutorService {
+ public ScheduledThreadPoolExecutor(int n){super(n,Integer.MAX_VALUE,0,TimeUnit.NANOSECONDS,new LinkedBlockingQueue<Runnable>());} public ScheduledThreadPoolExecutor(int n,ThreadFactory f){super(n,Integer.MAX_VALUE,0,TimeUnit.NANOSECONDS,new LinkedBlockingQueue<Runnable>(),f);}
+ private static class Task<V> extends FutureTask<V> implements ScheduledFuture<V>{Task(Callable<V> c){super(c);}public long getDelay(TimeUnit u){if(u==null)throw new NullPointerException();return 0;}public int compareTo(Delayed d){return 0;}}
+ public <V> ScheduledFuture<V> schedule(Callable<V> c,long delay,TimeUnit u){if(c==null||u==null)throw new NullPointerException();Task<V> t=new Task<V>(c);execute(t);return t;}public ScheduledFuture<?> schedule(Runnable r,long delay,TimeUnit u){if(r==null)throw new NullPointerException();return schedule(Executors.callable(r,null),delay,u);}public ScheduledFuture<?> scheduleAtFixedRate(Runnable r,long initial,long period,TimeUnit u){if(period<=0)throw new IllegalArgumentException();return schedule(r,initial,u);}public ScheduledFuture<?> scheduleWithFixedDelay(Runnable r,long initial,long delay,TimeUnit u){if(delay<=0)throw new IllegalArgumentException();return schedule(r,initial,u);}
+}

@@ -34,10 +34,23 @@ final class LibraryController: UITableViewController, UIDocumentPickerDelegate {
         title = "Library"
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(pick))
         try? fm.createDirectory(at: apps, withIntermediateDirectories: true)
+        seedExamples()
         if let data = try? Data(contentsOf: cacheURL), let cache = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] { info = cache }
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "app")
     }
     override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); refresh() }
+    /// Copies the demo APKs shipped in the bundle on first launch.
+    private func seedExamples() {
+        let key = "idorid.seededExamples.v1"
+        guard !UserDefaults.standard.bool(forKey: key),
+              let dir = Bundle.main.url(forResource: "Examples", withExtension: nil),
+              let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for item in items where item.pathExtension.lowercased() == "apk" {
+            let dest = apps.appendingPathComponent(item.lastPathComponent)
+            if !fm.fileExists(atPath: dest.path) { try? fm.copyItem(at: item, to: dest) }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+    }
     @objc private func pick() {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(filenameExtension: "apk") ?? .data], asCopy: true)
         picker.delegate = self

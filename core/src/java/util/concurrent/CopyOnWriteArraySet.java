@@ -1,0 +1,3 @@
+package java.util.concurrent;
+import java.util.*;
+public class CopyOnWriteArraySet<E> extends AbstractSet<E> implements java.io.Serializable {private final CopyOnWriteArrayList<E> data=new CopyOnWriteArrayList<E>(); public CopyOnWriteArraySet(){} public CopyOnWriteArraySet(Collection<? extends E> c){addAll(c);} public int size(){return data.size();}public boolean contains(Object o){return data.contains(o);}public boolean add(E e){return data.addIfAbsent(e);}public boolean remove(Object o){return data.remove(o);}public void clear(){data.clear();}public Iterator<E> iterator(){return data.iterator();}}

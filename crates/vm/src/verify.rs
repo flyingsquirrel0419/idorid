@@ -18,7 +18,10 @@ pub fn verify(insns: &[u16], regs: u16) -> Result<(), String> {
         let a = ((ins >> 8) & 0xf) as usize;
         let b = (ins >> 12) as usize;
         let unit = |k: usize| -> Result<usize, String> {
-            insns.get(pc + k).map(|&u| u as usize).ok_or_else(|| format!("truncated instruction at {pc}"))
+            insns
+                .get(pc + k)
+                .map(|&u| u as usize)
+                .ok_or_else(|| format!("truncated instruction at {pc}"))
         };
         let check = |r: usize| -> Result<(), String> {
             if r < regs {
@@ -73,7 +76,18 @@ pub fn verify(insns: &[u16], regs: u16) -> Result<(), String> {
                 3
             }
             // 21t, 21s, 21h, 21c
-            0x13 | 0x15 | 0x16 | 0x19 | 0x1a | 0x1c | 0x1f | 0x22 | 0x38..=0x3d | 0x60..=0x6d | 0xfe | 0xff => {
+            0x13
+            | 0x15
+            | 0x16
+            | 0x19
+            | 0x1a
+            | 0x1c
+            | 0x1f
+            | 0x22
+            | 0x38..=0x3d
+            | 0x60..=0x6d
+            | 0xfe
+            | 0xff => {
                 check(aa)?;
                 2
             }
