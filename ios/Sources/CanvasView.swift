@@ -2,10 +2,7 @@ import UIKit
 
 /// Replays the Android canvas recording in UIKit's point coordinate system.
 final class CanvasView: UIView {
-    var onSize: ((Int32, Int32) -> Void)?
     var imageForID: ((Int32) -> UIImage?)?
-    var minimumSize = CGSize.zero { didSet { if minimumSize != oldValue { invalidateIntrinsicContentSize() } } }
-    private var lastSize: CGSize?
     private var operations: [Any] = []
     private var operationsData: Data?
 
@@ -16,7 +13,6 @@ final class CanvasView: UIView {
         contentMode = .redraw
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
-    override var intrinsicContentSize: CGSize { minimumSize }
     func updateOperations(_ ops: [Any]) {
         let data = try? JSONSerialization.data(withJSONObject: ops, options: [.sortedKeys, .fragmentsAllowed])
         if data == nil || data != operationsData {
@@ -24,14 +20,6 @@ final class CanvasView: UIView {
             operationsData = data
             setNeedsDisplay()
         }
-    }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let w = bounds.width.rounded(), h = bounds.height.rounded()
-        guard w.isFinite, h.isFinite, w >= 0, h >= 0,
-              w <= CGFloat(Int32.max), h <= CGFloat(Int32.max) else { return }
-        let size = CGSize(width: w, height: h)
-        if size != lastSize { lastSize = size; onSize?(Int32(w), Int32(h)) }
     }
     private func number(_ op: [Any], _ i: Int) -> CGFloat? {
         guard i < op.count, let n = op[i] as? NSNumber else { return nil }

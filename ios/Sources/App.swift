@@ -6,6 +6,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     private var library: LibraryController?
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        idorid_set_text_measurer(idoridTextMeasurer)
         let library = LibraryController()
         self.library = library
         let window = UIWindow(frame: UIScreen.main.bounds)

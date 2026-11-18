@@ -52,6 +52,7 @@ of arrays, first element the op name. Colors are `"#aarrggbb"` strings.
 | `["translate", dx, dy]` | |
 | `["scale", sx, sy]` | |
 | `["rotate", degrees]` | around the origin (pivot form is emitted as translate/rotate/translate) |
+| `["concat", a, b, c, d, tx, ty]` | concatenate affine transform x′ = a·x + c·y + tx, y′ = b·x + d·y + ty |
 | `["clip", l, t, r, b]` | intersect clip with rect |
 | `["color", color]` | fill whole clip (`drawColor`, `drawRGB`, `drawARGB`) |
 | `["rect", l, t, r, b, color, style, sw]` | `drawRect` |
