@@ -7,12 +7,15 @@ public class ValueAnimator extends Animator {
     public static final int INFINITE = -1, RESTART = 1, REVERSE = 2;
     private final Handler handler = new Handler();
     private final ArrayList<AnimatorUpdateListener> updates = new ArrayList<AnimatorUpdateListener>();
+    private TypeEvaluator evaluator;
     private float[] floats = {0, 1}; private int[] ints; private Object value; private float fraction;
     private long pauseTime;
     private long startTime; private int repeatCount, repeatMode = RESTART, iteration;
     private final Runnable frame = new Runnable() { public void run() { doFrame(); } };
     public static ValueAnimator ofFloat(float... values) { ValueAnimator a = new ValueAnimator(); a.setFloatValues(values); return a; }
     public static ValueAnimator ofInt(int... values) { ValueAnimator a = new ValueAnimator(); a.setIntValues(values); return a; }
+    public static ValueAnimator ofArgb(int... values) { ValueAnimator a=ofInt(values);a.setEvaluator(ArgbEvaluator.getInstance());return a; }
+    public void setEvaluator(TypeEvaluator evaluator) { this.evaluator=evaluator; }
     public void setFloatValues(float... values) { floats = values; ints = null; }
     public void setIntValues(int... values) { ints = values; }
     public void addUpdateListener(AnimatorUpdateListener l) { if (l != null) updates.add(l); }
@@ -44,7 +47,8 @@ public class ValueAnimator extends Animator {
         fraction = interpolator == null ? f : interpolator.getInterpolation(f);
         int n = ints != null ? ints.length : floats.length;
         if (n > 0) { float pos = fraction * (n-1); int i = (int)pos; if (i < 0) i = 0; if (i >= n-1) i = n-1; int j = Math.min(i+1,n-1); float t = pos-i;
-            value = ints != null ? (Object)Integer.valueOf(ints[i] + (int)((ints[j]-ints[i])*t)) : (Object)Float.valueOf(floats[i] + (floats[j]-floats[i])*t); }
+            Object from=ints != null ? (Object)Integer.valueOf(ints[i]) : (Object)Float.valueOf(floats[i]); Object to=ints != null ? (Object)Integer.valueOf(ints[j]) : (Object)Float.valueOf(floats[j]);
+            value = evaluator != null ? evaluator.evaluate(t,from,to) : ints != null ? (Object)Integer.valueOf(ints[i] + (int)((ints[j]-ints[i])*t)) : (Object)Float.valueOf(floats[i] + (floats[j]-floats[i])*t); }
         animateValue(value);
         for (AnimatorUpdateListener l : new ArrayList<AnimatorUpdateListener>(updates)) l.onAnimationUpdate(this);
     }

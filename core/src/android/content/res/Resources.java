@@ -64,6 +64,7 @@ public class Resources {
             String[] values = new String[wanted.length];
             Map<Integer, String> xml = new HashMap<Integer, String>();
             int explicitStyle = 0;
+            if (set instanceof VMXmlParser) set = ((VMXmlParser) set).idoridAttrs();
             if (set instanceof android.view.XmlAttrs) {
                 android.view.XmlAttrs x = (android.view.XmlAttrs) set;
                 for (int i = 0; i < x.getAttributeCount(); i++) {
@@ -245,9 +246,16 @@ public class Resources {
     public final AssetManager getAssets() { return new AssetManager(); }
     public java.io.InputStream openRawResource(int id) throws NotFoundException { throw nf(id); }
     public java.io.InputStream openRawResource(int id, TypedValue v) throws NotFoundException { throw nf(id); }
-    public XmlResourceParser getLayout(int id) { throw new UnsupportedOperationException("idorid: getLayout parser"); }
-    public XmlResourceParser getXml(int id) { throw new UnsupportedOperationException("idorid: getXml parser"); }
-    public XmlResourceParser getAnimation(int id) { throw new UnsupportedOperationException("idorid: getAnimation parser"); }
+    public XmlResourceParser getLayout(int id) { return new VMXmlParser(getLayoutSource(id), null); }
+    public XmlResourceParser getXml(int id) { return xmlParser(id); }
+    public XmlResourceParser getAnimation(int id) { return xmlParser(id); }
+    private XmlResourceParser xmlParser(int id) {
+        String v = idoridValue(id);
+        if (v == null || VMValue.kind(v) != 'p') throw nf(id);
+        String src = nativeXml(VMValue.body(v));
+        if (src == null) throw nf(id);
+        return new VMXmlParser(src, null);
+    }
     public android.graphics.Typeface getFont(int id) { return android.graphics.Typeface.DEFAULT; }
     /** idorid: serialized layout tree for LayoutInflater. */
     public String getLayoutSource(int id) { String s = nativeLayout(id); if (s == null) throw nf(id); return s; }

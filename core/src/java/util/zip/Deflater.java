@@ -1,0 +1,10 @@
+package java.util.zip;
+import java.io.ByteArrayOutputStream;
+public class Deflater {
+    public static final int DEFAULT_COMPRESSION=-1,NO_COMPRESSION=0,BEST_SPEED=1,BEST_COMPRESSION=9,DEFAULT_STRATEGY=0,FILTERED=1,HUFFMAN_ONLY=2,NO_FLUSH=0,SYNC_FLUSH=2,FULL_FLUSH=3;
+    private final boolean nowrap; private final ByteArrayOutputStream input=new ByteArrayOutputStream(); private byte[] output;private int offset;private boolean finish;
+    public Deflater(){this(DEFAULT_COMPRESSION,false);} public Deflater(int level){this(level,false);} public Deflater(int level,boolean nowrap){if(level< -1||level>9)throw new IllegalArgumentException();this.nowrap=nowrap;}
+    public void setInput(byte[] b){setInput(b,0,b.length);} public void setInput(byte[] b,int off,int len){input.write(b,off,len);} public boolean needsInput(){return true;} public void finish(){finish=true;} public boolean finished(){return finish&&output!=null&&offset==output.length;} public void end(){} public void reset(){input.reset();output=null;offset=0;finish=false;} public void setLevel(int level){} public void setStrategy(int strategy){}
+    private void build(){byte[] src=input.toByteArray();ByteArrayOutputStream out=new ByteArrayOutputStream();if(!nowrap){out.write(0x78);out.write(0x01);}int pos=0;do{int n=Math.min(65535,src.length-pos);boolean last=pos+n==src.length;out.write(last?1:0);out.write(n&255);out.write(n>>>8);int inverse=(~n)&65535;out.write(inverse&255);out.write(inverse>>>8);out.write(src,pos,n);pos+=n;}while(pos<src.length);if(!nowrap){int a=1,b=0;for(byte x:src){a=(a+(x&255))%65521;b=(b+a)%65521;}int sum=(b<<16)|a;out.write(sum>>>24);out.write(sum>>>16);out.write(sum>>>8);out.write(sum);}output=out.toByteArray();}
+    public int deflate(byte[] b){return deflate(b,0,b.length);} public int deflate(byte[] b,int off,int len){if(!finish)return 0;if(output==null)build();int n=Math.min(len,output.length-offset);System.arraycopy(output,offset,b,off,n);offset+=n;return n;} public int deflate(byte[] b,int off,int len,int flush){return deflate(b,off,len);}
+}

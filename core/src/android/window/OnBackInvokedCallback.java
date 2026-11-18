@@ -1,2 +1,2 @@
 package android.window;
-public interface OnBackInvokedCallback { void onBackInvoked(); }
+public interface OnBackInvokedCallback { Object IDORID_INITIALIZER=new Object(); void onBackInvoked(); }

@@ -1,2 +1,2 @@
 package android.view;
-public class DragEvent { public int getAction(){return 0;} public float getX(){return 0;} public float getY(){return 0;} public Object getLocalState(){return null;} public boolean getResult(){return false;} }
+public class DragEvent { public android.content.ClipData getClipData(){return null;} public int getAction(){return 0;} public float getX(){return 0;} public float getY(){return 0;} public Object getLocalState(){return null;} public boolean getResult(){return false;} }

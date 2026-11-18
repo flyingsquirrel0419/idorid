@@ -1,0 +1,2 @@
+package android.icu.util;
+public class TimeZone { private final java.util.TimeZone zone; private TimeZone(java.util.TimeZone zone){this.zone=zone;} public static TimeZone getDefault(){return new TimeZone(java.util.TimeZone.getDefault());} public static TimeZone getTimeZone(String id){return new TimeZone(java.util.TimeZone.getTimeZone(id));} public String getID(){return zone.getID();} public int getOffset(long time){return zone.getOffset(time);} public int getRawOffset(){return zone.getRawOffset();} public java.util.TimeZone toJavaTimeZone(){return zone;} }

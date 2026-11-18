@@ -1,0 +1,2 @@
+package java.util.zip;
+public class CRC32 implements Checksum { private int crc=0xffffffff; public void update(int b){crc^=b&255;for(int i=0;i<8;i++)crc=(crc>>>1)^((crc&1)!=0?0xedb88320:0);} public void update(byte[] b){update(b,0,b.length);} public void update(byte[] b,int off,int len){if(off<0||len<0||off>b.length-len)throw new ArrayIndexOutOfBoundsException();for(int i=off;i<off+len;i++)update(b[i]);} public long getValue(){return (crc^0xffffffffL)&0xffffffffL;} public void reset(){crc=0xffffffff;} }

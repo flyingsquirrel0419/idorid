@@ -57,16 +57,13 @@ public final class ActivityThread {
         a.mRequestCode = requestCode;
         a.mTitle = appLabel;
         Activity top = top();
-        if (top != null && top.mResumed) { top.mResumed = false; top.onPause(); }
+        if (top != null && top.mResumed) top.performPause();
         stack.add(a);
-        a.onCreate(null);
-        a.onPostCreate(null);
+        a.performCreate(null);
         if (!a.mFinished) {
-            a.onStart();
-            a.onResume();
-            a.onPostResume();
-            a.mResumed = true;
-            if (top != null) top.onStop();
+            a.performStart();
+            a.performResume();
+            if (top != null) top.performStop();
         }
     }
 
@@ -83,18 +80,17 @@ public final class ActivityThread {
                     if (!a.mFinished) continue;
                     changed = true;
                     stack.remove(i);
-                    if (a.mResumed) { a.mResumed = false; a.onPause(); }
-                    a.onStop();
-                    a.onDestroy();
+                    if (a.mResumed) a.performPause();
+                    a.performStop();
+                    a.performDestroy();
                     if (a.mCaller != null && a.mRequestCode >= 0 && stack.contains(a.mCaller)) a.mCaller.onActivityResult(a.mRequestCode, a.mResultCode, a.mResultData);
                 }
                 Activity t = top();
                 if (t != null && !t.mResumed && !t.mFinished) {
                     changed = true;
                     t.onRestart();
-                    t.onStart();
-                    t.onResume();
-                    t.mResumed = true;
+                    t.performStart();
+                    t.performResume();
                 }
                 if (!changed) break;
             }

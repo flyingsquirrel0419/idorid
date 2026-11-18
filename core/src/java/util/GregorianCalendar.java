@@ -1,0 +1,2 @@
+package java.util;
+public class GregorianCalendar extends Calendar { public GregorianCalendar(){super(TimeZone.getDefault());} public GregorianCalendar(TimeZone zone){super(zone);} public GregorianCalendar(Locale locale){super(TimeZone.getDefault());} public GregorianCalendar(TimeZone zone,Locale locale){super(zone);} public GregorianCalendar(int year,int month,int day){this();set(year,month,day);} public boolean isLeapYear(int year){return year%4==0&&(year%100!=0||year%400==0);} }

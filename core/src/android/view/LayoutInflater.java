@@ -90,6 +90,13 @@ public class LayoutInflater {
             int layout = attrs.integer("layout", 0);
             while (s.charAt(pos[0]) != '\u0003') parse(s, pos, null, false, false);
             pos[0]++;
+            String inc = ctx.getResources().getLayoutSource(layout);
+            if (inc.startsWith("\u0001merge") && (inc.length() == 6 || inc.charAt(6) <= '\u0005')) {
+                if (parent == null) throw new InflateException("<merge /> can be used only with a valid ViewGroup root");
+                int[] ip = { 0 };
+                parse(inc, ip, parent, true, true);
+                return parent;
+            }
             View v = inflate(layout, null, false);
             int id = attrs.integer("id", View.NO_ID);
             if (id != View.NO_ID) v.setId(id);

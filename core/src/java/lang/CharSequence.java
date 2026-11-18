@@ -4,4 +4,6 @@ public interface CharSequence {
     char charAt(int i);
     CharSequence subSequence(int b, int e);
     String toString();
+    default java.util.stream.IntStream chars() { return new java.util.stream.CharSequenceIntStream(this,false); }
+    default java.util.stream.IntStream codePoints() { return new java.util.stream.CharSequenceIntStream(this,true); }
 }

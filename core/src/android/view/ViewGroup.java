@@ -10,6 +10,12 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         public int width, height;
         public LayoutParams(int w, int h) { width = w; height = h; }
         public LayoutParams(LayoutParams src) { width = src.width; height = src.height; }
+        public void resolveLayoutDirection(int layoutDirection) {}
+        protected void setBaseAttributes(android.content.res.TypedArray a, int widthAttr, int heightAttr) {
+            width = a.getLayoutDimension(widthAttr, "layout_width");
+            height = a.getLayoutDimension(heightAttr, "layout_height");
+        }
+        public String debug(String output) { return output + "ViewGroup.LayoutParams={ width=" + width + ", height=" + height + " }"; }
         public LayoutParams(Context c, AttributeSet attrs) {
             XmlAttrs a = attrs instanceof XmlAttrs ? (XmlAttrs) attrs : XmlAttrs.EMPTY;
             width = (int) a.dimension("layout_width", WRAP_CONTENT);
@@ -38,6 +44,10 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         public void setMarginEnd(int e) { rightMargin = e; }
         public int getMarginStart() { return leftMargin; }
         public int getMarginEnd() { return rightMargin; }
+        public boolean isMarginRelative() { return false; }
+        public void setLayoutDirection(int d) {}
+        public int getLayoutDirection() { return 0; }
+        public void resolveLayoutDirection(int layoutDirection) {}
     }
     public interface OnHierarchyChangeListener { void onChildViewAdded(View parent, View child); void onChildViewRemoved(View parent, View child); }
 
@@ -138,6 +148,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (index < 0 || index > children.size()) children.add(child); else children.add(index, child);
         child.mForceLayout = true;
         requestLayout();
+        onViewAdded(child);
         child.idoridAttached();
     }
     public void updateViewLayout(View v, LayoutParams p) { v.setLayoutParams(p); requestLayout(); }
@@ -151,10 +162,9 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     public int indexOfChild(View v) { return children.indexOf(v); }
     public void bringChildToFront(View v) { if (children.remove(v)) children.add(v); }
     public void setOnHierarchyChangeListener(OnHierarchyChangeListener l) {}
-    public void setClipChildren(boolean b) {}
-    public void setClipToPadding(boolean b) {}
-    public void setDescendantFocusability(int f) {}
-    public void setLayoutTransition(Object t) {}
+    public void setClipChildren(boolean b) { clipChildren = b; }
+    public void setClipToPadding(boolean b) { clipToPadding = b; }
+    public void setDescendantFocusability(int f) { descendantFocusability = f; }
     // ---------------------------------------------------------------- touch dispatch (single pointer)
     private View touchTarget;
     private boolean disallowIntercept;
@@ -218,6 +228,58 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         for (int i = 0; i < children.size(); i++) { View v = children.get(i).findByUid(uid); if (v != null) return v; }
         return null;
     }
+
+    public static final int FOCUS_BEFORE_DESCENDANTS = 0x20000, FOCUS_AFTER_DESCENDANTS = 0x40000, FOCUS_BLOCK_DESCENDANTS = 0x60000;
+    public static final int CLIP_TO_PADDING_MASK = 0x22, LAYOUT_MODE_CLIP_BOUNDS = 0, LAYOUT_MODE_OPTICAL_BOUNDS = 1;
+    private boolean clipToPadding = true, clipChildren = true, drawingOrder, suppressLayout;
+    private int descendantFocusability = FOCUS_BEFORE_DESCENDANTS;
+    private android.animation.LayoutTransition layoutTransition;
+    private ViewGroupOverlay groupOverlay;
+    public boolean getClipToPadding() { return clipToPadding; }
+    public boolean getClipChildren() { return clipChildren; }
+    public int getDescendantFocusability() { return descendantFocusability; }
+    public android.animation.LayoutTransition getLayoutTransition() { return layoutTransition; }
+    public void setLayoutTransition(android.animation.LayoutTransition t) { layoutTransition = t; }
+    public ViewGroupOverlay getOverlay() { if (groupOverlay == null) groupOverlay = new ViewGroupOverlay(); return groupOverlay; }
+    public void setChildrenDrawingOrderEnabled(boolean b) { drawingOrder = b; }
+    protected boolean isChildrenDrawingOrderEnabled() { return drawingOrder; }
+    protected int getChildDrawingOrder(int count, int i) { return i; }
+    public final int getChildDrawingOrder(int i) { return getChildDrawingOrder(getChildCount(), i); }
+    public void setChildrenDrawingCacheEnabled(boolean b) {}
+    public void setAddStatesFromChildren(boolean b) {}
+    public boolean addStatesFromChildren() { return false; }
+    public void suppressLayout(boolean b) { suppressLayout = b; if (!b) requestLayout(); }
+    public boolean isLayoutSuppressed() { return suppressLayout; }
+    public void onViewAdded(View child) {}
+    public void onViewRemoved(View child) {}
+    protected boolean onRequestFocusInDescendants(int dir, android.graphics.Rect prev) { return false; }
+    public ActionMode startActionModeForChild(View original, ActionMode.Callback cb) { return null; }
+    public ActionMode startActionModeForChild(View original, ActionMode.Callback cb, int type) { return null; }
+    protected void dispatchFreezeSelfOnly(android.util.SparseArray<android.os.Parcelable> c) { super.dispatchSaveInstanceState(c); }
+    protected void dispatchThawSelfOnly(android.util.SparseArray<android.os.Parcelable> c) { super.dispatchRestoreInstanceState(c); }
+    protected void dispatchSaveInstanceState(android.util.SparseArray<android.os.Parcelable> c) {
+        super.dispatchSaveInstanceState(c);
+        for (int i = 0; i < children.size(); i++) { View v = children.get(i); if (v.isSaveFromParentEnabled()) v.dispatchSaveInstanceState(c); }
+    }
+    protected void dispatchRestoreInstanceState(android.util.SparseArray<android.os.Parcelable> c) {
+        super.dispatchRestoreInstanceState(c);
+        for (int i = 0; i < children.size(); i++) { View v = children.get(i); if (v.isSaveFromParentEnabled()) v.dispatchRestoreInstanceState(c); }
+    }
+    public WindowInsets dispatchApplyWindowInsets(WindowInsets insets) {
+        WindowInsets r = super.dispatchApplyWindowInsets(insets);
+        for (int i = 0; i < children.size(); i++) children.get(i).dispatchApplyWindowInsets(r);
+        return r;
+    }
+    /** Converts a rect in a descendant's coordinates to this view's coordinates. */
+    public final void offsetDescendantRectToMyCoords(View d, android.graphics.Rect r) {
+        View v = d;
+        while (v != null && v != this) { r.offset(v.mLeft - (v == d ? 0 : 0), v.mTop); ViewParent p = v.getParent(); if (p instanceof View) { r.offset(-((View) p).mScrollX, -((View) p).mScrollY); v = (View) p; } else v = null; }
+    }
+    public final void offsetRectIntoDescendantCoords(View d, android.graphics.Rect r) {
+        View v = d;
+        while (v != null && v != this) { r.offset(-v.mLeft, -v.mTop); ViewParent p = v.getParent(); if (p instanceof View) { r.offset(((View) p).mScrollX, ((View) p).mScrollY); v = (View) p; } else v = null; }
+    }
+
     void attachTree(boolean attach) {
         super.attachTree(attach);
         for (int i = 0; i < children.size(); i++) children.get(i).attachTree(attach);

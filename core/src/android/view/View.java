@@ -107,7 +107,7 @@ public class View implements Drawable.Callback {
     public final ViewParent getParent() { return mParent; }
     public View getRootView() { View v = this; while (v.mParent instanceof View) v = (View) v.mParent; return v; }
     public ViewGroup.LayoutParams getLayoutParams() { return mLayoutParams; }
-    public void setLayoutParams(ViewGroup.LayoutParams p) { if (p == null) throw new NullPointerException("Layout parameters cannot be null"); mLayoutParams = p; requestLayout(); }
+    public void setLayoutParams(ViewGroup.LayoutParams p) { if (p == null) throw new NullPointerException("Layout parameters cannot be null"); mLayoutParams = p; p.resolveLayoutDirection(getLayoutDirection()); requestLayout(); }
 
     public void setOnClickListener(OnClickListener l) { if (l != null) clickable = true; mOnClickListener = l; }
     public boolean hasOnClickListeners() { return mOnClickListener != null; }
@@ -145,6 +145,7 @@ public class View implements Drawable.Callback {
         if (attach == mAttached) return;
         mAttached = attach;
         if (attach) {
+            if (mLayoutParams != null) mLayoutParams.resolveLayoutDirection(getLayoutDirection());
             onAttachedToWindow();
             if (attachListeners != null) for (OnAttachStateChangeListener l : new java.util.ArrayList<OnAttachStateChangeListener>(attachListeners)) l.onViewAttachedToWindow(this);
         } else {
@@ -189,7 +190,9 @@ public class View implements Drawable.Callback {
         else setBackground(new ColorDrawable(c));
     }
     public void setBackgroundResource(int id) { setBackground(id == 0 ? null : getContext().getDrawable(id)); }
-    public void setBackground(Drawable d) {
+    public void setBackground(Drawable d) { setBackgroundDrawable(d); }
+    @Deprecated
+    public void setBackgroundDrawable(Drawable d) {
         if (d == mBackground) return;
         if (mBackground != null) mBackground.setCallback(null);
         boolean sizeChange = d == null || mBackground == null || d.getMinimumWidth() != mBackground.getMinimumWidth() || d.getMinimumHeight() != mBackground.getMinimumHeight();
@@ -202,7 +205,6 @@ public class View implements Drawable.Callback {
         if (sizeChange) requestLayout();
         invalidate();
     }
-    public void setBackgroundDrawable(Drawable d) { setBackground(d); }
     public Drawable getBackground() { return mBackground; }
     public void setBackgroundTintList(android.content.res.ColorStateList t) { bgTint = t; if (mBackground != null) { mBackground = mBackground.mutate(); mBackground.setTintList(t); } invalidate(); }
     public android.content.res.ColorStateList getBackgroundTintList() { return bgTint; }
@@ -321,6 +323,7 @@ public class View implements Drawable.Callback {
 
     public final void measure(int widthMeasureSpec, int heightMeasureSpec) {
         if (mForceLayout || widthMeasureSpec != mOldWidthSpec || heightMeasureSpec != mOldHeightSpec) {
+            if (mLayoutParams != null) mLayoutParams.resolveLayoutDirection(getLayoutDirection());
             measuredCalled = false;
             onMeasure(widthMeasureSpec, heightMeasureSpec);
             if (!measuredCalled) throw new IllegalStateException("View with id " + getId() + ": " + getClass().getName() + "#onMeasure() did not set the measured dimension by calling setMeasuredDimension()");
@@ -729,6 +732,101 @@ public class View implements Drawable.Callback {
     public void clearAnimation() { if (currentAnimation != null) currentAnimation.cancel(); currentAnimation = null; }
     public void setLeftTopRightBottom(int l, int t, int r, int b) { setFrame(l, t, r, b); }
     public void saveAttributeDataForStyleable(android.content.Context c, int[] styleable, android.util.AttributeSet attrs, android.content.res.TypedArray t, int defStyleAttr, int defStyleRes) {}
+
+
+    // ---------------------------------------------------------------- insets, accessibility, autofill
+    public interface OnApplyWindowInsetsListener { WindowInsets onApplyWindowInsets(View v, WindowInsets insets); }
+    public static class AccessibilityDelegate {
+        public void sendAccessibilityEvent(View host, int eventType) {}
+        public boolean performAccessibilityAction(View host, int action, android.os.Bundle args) { return false; }
+        public void sendAccessibilityEventUnchecked(View host, android.view.accessibility.AccessibilityEvent e) {}
+        public boolean dispatchPopulateAccessibilityEvent(View host, android.view.accessibility.AccessibilityEvent e) { return false; }
+        public void onPopulateAccessibilityEvent(View host, android.view.accessibility.AccessibilityEvent e) {}
+        public void onInitializeAccessibilityEvent(View host, android.view.accessibility.AccessibilityEvent e) {}
+        public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {}
+        public void addExtraDataToAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info, String key, android.os.Bundle args) {}
+        public boolean onRequestSendAccessibilityEvent(ViewGroup host, View child, android.view.accessibility.AccessibilityEvent e) { return true; }
+        public android.view.accessibility.AccessibilityNodeProvider getAccessibilityNodeProvider(View host) { return null; }
+    }
+    private OnApplyWindowInsetsListener insetsListener;
+    private AccessibilityDelegate a11yDelegate;
+    private int importantForA11y, importantForAutofill, importantForContentCapture, liveRegion;
+    private boolean a11yHeading;
+    private CharSequence paneTitle;
+    private android.view.autofill.AutofillId autofillId;
+    private android.view.contentcapture.ContentCaptureSession captureSession;
+    private ViewOutlineProvider outlineProvider = ViewOutlineProvider.BACKGROUND;
+    private String[] receiveMimeTypes;
+    private OnReceiveContentListener receiveListener;
+    public void setOnApplyWindowInsetsListener(OnApplyWindowInsetsListener l) { insetsListener = l; }
+    public WindowInsets onApplyWindowInsets(WindowInsets insets) { return insets; }
+    /** Insets are always zero: the iOS host lays out the window inside the safe area. */
+    public WindowInsets dispatchApplyWindowInsets(WindowInsets insets) {
+        return insetsListener != null ? insetsListener.onApplyWindowInsets(this, insets) : onApplyWindowInsets(insets);
+    }
+    public WindowInsets getRootWindowInsets() { return mAttached ? new WindowInsets(new android.graphics.Rect()) : null; }
+    public WindowInsets computeSystemWindowInsets(WindowInsets in, android.graphics.Rect outLocalInsets) { if (outLocalInsets != null) outLocalInsets.setEmpty(); return in; }
+    public void setWindowInsetsAnimationCallback(WindowInsetsAnimation.Callback cb) {}
+    public android.window.OnBackInvokedDispatcher findOnBackInvokedDispatcher() { return null; }
+    public Display getDisplay() { return null; }
+    public WindowId getWindowId() { return null; }
+    public void setAccessibilityDelegate(AccessibilityDelegate d) { a11yDelegate = d; }
+    public AccessibilityDelegate getAccessibilityDelegate() { return a11yDelegate; }
+    public void setImportantForAccessibility(int m) { importantForA11y = m; }
+    public int getImportantForAccessibility() { return importantForA11y; }
+    public boolean isImportantForAccessibility() { return importantForA11y != IMPORTANT_FOR_ACCESSIBILITY_NO && importantForA11y != IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS; }
+    public void setAccessibilityLiveRegion(int m) { liveRegion = m; }
+    public int getAccessibilityLiveRegion() { return liveRegion; }
+    public void setAccessibilityHeading(boolean b) { a11yHeading = b; }
+    public boolean isAccessibilityHeading() { return a11yHeading; }
+    public void setAccessibilityPaneTitle(CharSequence t) { paneTitle = t; }
+    public CharSequence getAccessibilityPaneTitle() { return paneTitle; }
+    public void setAccessibilityTraversalBefore(int id) {}
+    public void setAccessibilityTraversalAfter(int id) {}
+    public void announceForAccessibility(CharSequence text) {}
+    public void sendAccessibilityEvent(int type) { if (a11yDelegate != null) a11yDelegate.sendAccessibilityEvent(this, type); }
+    public void sendAccessibilityEventUnchecked(android.view.accessibility.AccessibilityEvent e) {}
+    public boolean dispatchPopulateAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) { return false; }
+    public void onPopulateAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) {}
+    public void onInitializeAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) {}
+    public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {}
+    public android.view.accessibility.AccessibilityNodeInfo createAccessibilityNodeInfo() {
+        android.view.accessibility.AccessibilityNodeInfo i = android.view.accessibility.AccessibilityNodeInfo.obtain();
+        if (a11yDelegate != null) a11yDelegate.onInitializeAccessibilityNodeInfo(this, i); else onInitializeAccessibilityNodeInfo(i);
+        return i;
+    }
+    public android.view.accessibility.AccessibilityNodeProvider getAccessibilityNodeProvider() { return null; }
+    public boolean performAccessibilityAction(int action, android.os.Bundle args) { return a11yDelegate != null && a11yDelegate.performAccessibilityAction(this, action, args); }
+    public CharSequence getAccessibilityClassName() { return getClass().getName(); }
+    public void setImportantForAutofill(int m) { importantForAutofill = m; }
+    public int getImportantForAutofill() { return importantForAutofill; }
+    public boolean isImportantForAutofill() { return importantForAutofill != IMPORTANT_FOR_AUTOFILL_NO; }
+    public void setAutofillHints(String... hints) {}
+    public String[] getAutofillHints() { return null; }
+    public void setAutofillId(android.view.autofill.AutofillId id) { autofillId = id; }
+    public android.view.autofill.AutofillId getAutofillId() { return autofillId; }
+    public int getAutofillType() { return 0; }
+    public void dispatchProvideAutofillStructure(ViewStructure s, int flags) {}
+    public void onProvideAutofillStructure(ViewStructure s, int flags) {}
+    public void onProvideStructure(ViewStructure s) {}
+    public void setImportantForContentCapture(int m) { importantForContentCapture = m; }
+    public int getImportantForContentCapture() { return importantForContentCapture; }
+    public boolean isImportantForContentCapture() { return false; }
+    public void setContentCaptureSession(android.view.contentcapture.ContentCaptureSession s) { captureSession = s; }
+    public android.view.contentcapture.ContentCaptureSession getContentCaptureSession() { return captureSession; }
+    public android.view.inputmethod.InputConnection onCreateInputConnection(android.view.inputmethod.EditorInfo info) { return null; }
+    public boolean onDragEvent(DragEvent e) { return false; }
+    public boolean dispatchDragEvent(DragEvent e) { return onDragEvent(e); }
+    public PointerIcon onResolvePointerIcon(MotionEvent e, int pointerIndex) { return null; }
+    public void setPointerIcon(PointerIcon icon) {}
+    public void setOutlineProvider(ViewOutlineProvider p) { outlineProvider = p; }
+    public ViewOutlineProvider getOutlineProvider() { return outlineProvider; }
+    public void setOnReceiveContentListener(String[] mimeTypes, OnReceiveContentListener l) { receiveMimeTypes = mimeTypes; receiveListener = l; }
+    public String[] getReceiveContentMimeTypes() { return receiveMimeTypes; }
+    public ContentInfo performReceiveContent(ContentInfo payload) { return receiveListener != null ? receiveListener.onReceiveContent(this, payload) : onReceiveContent(payload); }
+    public ContentInfo onReceiveContent(ContentInfo payload) { return payload; }
+    public ViewOverlay getOverlay() { if (overlay == null) overlay = new ViewOverlay(); return overlay; }
+    ViewOverlay overlay;
 
     /** idorid: host type name. */
     protected String idoridType() { return "View"; }

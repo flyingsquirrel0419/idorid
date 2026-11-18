@@ -12,6 +12,7 @@ mod lambda;
 pub mod metrics;
 mod natives;
 mod natives_android;
+mod reflect;
 pub mod regex;
 pub mod text;
 mod verify;
@@ -1160,6 +1161,18 @@ impl Vm {
     }
 
     pub fn new_throwable(&mut self, class: &str, msg: Option<&str>) -> JResult<Ref> {
+        // Building the throwable runs Java constructors; give them headroom when
+        // the error being reported is the stack depth limit itself.
+        let saved = self.max_depth;
+        if self.frames.len() + 64 > self.max_depth {
+            self.max_depth = self.frames.len() + 64;
+        }
+        let r = self.new_throwable_inner(class, msg);
+        self.max_depth = saved;
+        r
+    }
+
+    fn new_throwable_inner(&mut self, class: &str, msg: Option<&str>) -> JResult<Ref> {
         let c = match self.load_class(class) {
             Ok(c) => c,
             Err(_) => panic!("core class missing: {class}"),

@@ -17,6 +17,37 @@ public class Window {
     public static final int DECOR_CAPTION_SHADE_AUTO = 0, PROGRESS_VISIBILITY_ON = -1, PROGRESS_VISIBILITY_OFF = -2;
     public static final String NAVIGATION_BAR_BACKGROUND_TRANSITION_NAME = "android:navigation:background", STATUS_BAR_BACKGROUND_TRANSITION_NAME = "android:status:background";
 
+    /** Activity hooks the window calls (Activity implements this). */
+    public interface Callback {
+        boolean dispatchKeyEvent(KeyEvent event);
+        boolean dispatchKeyShortcutEvent(KeyEvent event);
+        boolean dispatchTouchEvent(MotionEvent event);
+        boolean dispatchTrackballEvent(MotionEvent event);
+        boolean dispatchGenericMotionEvent(MotionEvent event);
+        boolean dispatchPopulateAccessibilityEvent(android.view.accessibility.AccessibilityEvent event);
+        View onCreatePanelView(int featureId);
+        boolean onCreatePanelMenu(int featureId, Menu menu);
+        boolean onPreparePanel(int featureId, View view, Menu menu);
+        boolean onMenuOpened(int featureId, Menu menu);
+        boolean onMenuItemSelected(int featureId, MenuItem item);
+        void onWindowAttributesChanged(WindowManager.LayoutParams attrs);
+        void onContentChanged();
+        void onWindowFocusChanged(boolean hasFocus);
+        void onAttachedToWindow();
+        void onDetachedFromWindow();
+        void onPanelClosed(int featureId, Menu menu);
+        boolean onSearchRequested();
+        boolean onSearchRequested(SearchEvent searchEvent);
+        ActionMode onWindowStartingActionMode(ActionMode.Callback callback);
+        ActionMode onWindowStartingActionMode(ActionMode.Callback callback, int type);
+        void onActionModeStarted(ActionMode mode);
+        void onActionModeFinished(ActionMode mode);
+        default void onPointerCaptureChanged(boolean hasCapture) {}
+    }
+    private Callback callback;
+    public void setCallback(Callback c) { callback = c; }
+    public final Callback getCallback() { return callback; }
+
     private final Context context;
     private FrameLayout decor;
     private FrameLayout contentParent;
@@ -88,6 +119,16 @@ public class Window {
     public boolean isStatusBarContrastEnforced() { return false; }
     public boolean isNavigationBarContrastEnforced() { return false; }
     public void setDecorFitsSystemWindows(boolean b) { decorFitsSystemWindows = b; }
+    private final WindowInsetsController insetsController = new WindowInsetsController() {
+        private int appearance, behavior;
+        public void show(int types) {}
+        public void hide(int types) {}
+        public void setSystemBarsAppearance(int a, int mask) { appearance = (appearance & ~mask) | (a & mask); }
+        public int getSystemBarsAppearance() { return appearance; }
+        public void setSystemBarsBehavior(int b) { behavior = b; }
+        public int getSystemBarsBehavior() { return behavior; }
+    };
+    public WindowInsetsController getInsetsController() { return insetsController; }
     public boolean idoridDecorFitsSystemWindows() { return decorFitsSystemWindows; }
     public void setSoftInputMode(int m) { attrs.softInputMode = m; }
     public void setBackgroundDrawable(Drawable d) { installDecor(); decor.setBackground(d); }

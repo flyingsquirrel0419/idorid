@@ -7,7 +7,7 @@ import android.content.res.Resources;
 import android.os.Looper;
 
 final class ContextImpl extends Context {
-    static final Resources RES = new Resources();
+    static final Resources RES = Resources.getSystem();
     Application app;
     public Resources getResources() { return RES; }
     public String getPackageName() { return ActivityThread.packageName; }

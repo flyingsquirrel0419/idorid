@@ -370,6 +370,7 @@ pub fn registry() -> HashMap<&'static str, NativeFn> {
     });
     crate::natives_android::register(&mut m);
     crate::natives_android::register_reflect(&mut m);
+    crate::reflect::register(&mut m);
     m
 }
 

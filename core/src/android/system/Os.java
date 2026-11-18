@@ -1,0 +1,2 @@
+package android.system;
+public final class Os { public static StructStat stat(String path) throws ErrnoException {throw new ErrnoException("stat",OsConstants.ENOENT);} public static StructStat fstat(java.io.FileDescriptor fd) throws ErrnoException {throw new ErrnoException("fstat",OsConstants.ENOENT);} public static String readlink(String path) throws ErrnoException {throw new ErrnoException("readlink",OsConstants.ENOENT);} }

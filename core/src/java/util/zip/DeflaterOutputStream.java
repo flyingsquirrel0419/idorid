@@ -1,0 +1,3 @@
+package java.util.zip;
+import java.io.*;
+public class DeflaterOutputStream extends OutputStream { protected final OutputStream out; protected final Deflater def; public DeflaterOutputStream(OutputStream out){this(out,new Deflater());} public DeflaterOutputStream(OutputStream out,Deflater def){this.out=out;this.def=def;} public void write(int b)throws IOException{write(new byte[]{(byte)b});} public void write(byte[] b,int off,int len)throws IOException{def.setInput(b,off,len);} public void finish()throws IOException{def.finish();byte[] b=new byte[512];while(!def.finished()){int n=def.deflate(b);if(n==0)break;out.write(b,0,n);}} public void flush()throws IOException{out.flush();} public void close()throws IOException{finish();out.close();} }

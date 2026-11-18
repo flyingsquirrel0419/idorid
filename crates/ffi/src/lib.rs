@@ -109,6 +109,31 @@ impl ApkResources {
             if REF_ATTRS.contains(&name) {
                 return Some(format!("r:{}", *id as i32));
             }
+            // References to ids, styles, layouts, arrays, etc. are identities.
+            let ty = (*id >> 16) & 0xff;
+            let kind = self.res.as_ref().and_then(|r| r.name(*id)).map(|n| {
+                let n = n.rsplit(':').next().unwrap_or(n);
+                n.split('/').next().unwrap_or("").to_string()
+            });
+            if matches!(
+                kind.as_deref(),
+                Some(
+                    "id" | "style"
+                        | "layout"
+                        | "array"
+                        | "menu"
+                        | "xml"
+                        | "anim"
+                        | "animator"
+                        | "transition"
+                        | "navigation"
+                        | "raw"
+                        | "font"
+                )
+            ) || (kind.is_none() && ty == 0)
+            {
+                return Some(format!("r:{}", *id as i32));
+            }
         }
         let rv = self.resolve(v);
         if let (ResValue::Reference(id), ResValue::String(path)) = (v, &rv) {

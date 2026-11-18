@@ -164,3 +164,28 @@ fn kotlin_calculator() {
     let v = ui(&app.ui());
     by_text(&v, "0.333333333333");
 }
+
+/// The Android Studio "Empty Views Activity" template built by Gradle/AGP with
+/// R8: AppCompatActivity + Material3 theme + MaterialButton + ConstraintLayout.
+#[test]
+fn androidx_template_app() {
+    let mut app = load("tests/fixtures/androidx-hello-release.apk");
+    let v = ui(&app.launch());
+    let hello = by_text(&v, "Hello World!");
+    let button = by_text(&v, "Tap me");
+    // ConstraintLayout centers the text; the button sits right below it
+    let (hx, hy, hw, hh) = (
+        hello["frame"][0].as_i64().unwrap(),
+        hello["frame"][1].as_i64().unwrap(),
+        hello["frame"][2].as_i64().unwrap(),
+        hello["frame"][3].as_i64().unwrap(),
+    );
+    assert!((hx + hw / 2 - 195).abs() <= 2, "hello not centered: {hello}");
+    assert!(hy > 300 && hy < 420);
+    assert_eq!(button["frame"][1].as_i64().unwrap(), hy + hh);
+    // MaterialButton paints its shape background through the canvas
+    assert!(button["draw"].as_array().is_some_and(|d| !d.is_empty()));
+    ui(&app.click(id(button)));
+    let v = ui(&app.click(id(by_text(&ui(&app.ui()), "Tap me"))));
+    by_text(&v, "Tapped 2 times");
+}

@@ -1,0 +1,3 @@
+package java.io;
+import java.nio.channels.FileChannel;
+public class FileOutputStream extends OutputStream { public FileOutputStream(String path)throws FileNotFoundException{throw new FileNotFoundException(path);} public FileOutputStream(File file,boolean append)throws FileNotFoundException{this(file);} public FileOutputStream(File file)throws FileNotFoundException{throw new FileNotFoundException(file.toString());} public FileOutputStream(FileDescriptor fd){} public void write(int value)throws IOException{throw new IOException("File access unavailable");} public FileChannel getChannel(){return null;} }

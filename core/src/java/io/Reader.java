@@ -1,0 +1,2 @@
+package java.io;
+public abstract class Reader implements Closeable { public int read() throws IOException {char[] c=new char[1];return read(c,0,1)<0?-1:c[0];} public int read(char[] chars)throws IOException{return read(chars,0,chars.length);} public abstract int read(char[] chars,int offset,int length)throws IOException; public long skip(long n)throws IOException{long i=0;while(i<n&&read()>=0)i++;return i;} public boolean ready()throws IOException{return false;} public abstract void close()throws IOException; }

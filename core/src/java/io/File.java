@@ -14,6 +14,7 @@ public class File implements Serializable, Comparable<File> {
     public String getName() { int i = path.lastIndexOf('/'); return path.substring(i + 1); }
     public String getParent() { int i = path.lastIndexOf('/'); return i <= 0 ? null : path.substring(0, i); }
     public File getParentFile() { String p = getParent(); return p == null ? null : new File(p); }
+    public boolean canRead() { return false; } public boolean canWrite() { return false; } public boolean createNewFile() throws IOException { throw new IOException("File access unavailable"); }
     public boolean exists() { return false; }
     public boolean isDirectory() { return false; }
     public boolean isFile() { return false; }

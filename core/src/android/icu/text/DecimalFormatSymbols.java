@@ -1,0 +1,4 @@
+package android.icu.text;
+import java.util.Locale;
+import android.icu.util.ULocale;
+public class DecimalFormatSymbols { private final java.text.DecimalFormatSymbols symbols; public DecimalFormatSymbols(){symbols=new java.text.DecimalFormatSymbols();} public DecimalFormatSymbols(Locale l){symbols=new java.text.DecimalFormatSymbols(l);} public DecimalFormatSymbols(ULocale l){this(l.toLocale());} public static DecimalFormatSymbols getInstance(Locale l){return new DecimalFormatSymbols(l);} public static DecimalFormatSymbols getInstance(ULocale l){return new DecimalFormatSymbols(l);} public String[] getDigitStrings(){String[] out=new String[10];char zero=getZeroDigit();for(int i=0;i<10;i++)out[i]=String.valueOf((char)(zero+i));return out;} public char getDecimalSeparator(){return symbols.getDecimalSeparator();} public char getGroupingSeparator(){return symbols.getGroupingSeparator();} public char getZeroDigit(){return symbols.getZeroDigit();} }

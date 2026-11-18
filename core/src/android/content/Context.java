@@ -39,4 +39,78 @@ public abstract class Context {
     public ComponentName startService(Intent i) { return null; }
     public boolean stopService(Intent i) { return false; }
     public int checkSelfPermission(String p) { return android.content.pm.PackageManager.PERMISSION_DENIED; }
+    public int checkPermission(String p, int pid, int uid) { return android.content.pm.PackageManager.PERMISSION_DENIED; }
+    public int checkCallingOrSelfPermission(String p) { return android.content.pm.PackageManager.PERMISSION_DENIED; }
+    public void enforceCallingOrSelfPermission(String p, String msg) { throw new SecurityException(msg); }
+    /** Configuration changes are not applied separately; the same resources serve every context. */
+    public Context createConfigurationContext(android.content.res.Configuration c) {
+        Context app = getApplicationContext();
+        final Resources r = app != null && app != this ? app.getResources() : Resources.getSystem();
+        return new ContextWrapper(this) { public Resources getResources() { return r; } };
+    }
+    public Context createDeviceProtectedStorageContext() { return this; }
+    public Context createContextForSplit(String name) { return this; }
+    public Context createAttributionContext(String tag) { return this; }
+    public Context createWindowContext(int type, android.os.Bundle options) { return this; }
+    public Context createPackageContext(String pkg, int flags) throws android.content.pm.PackageManager.NameNotFoundException { return this; }
+    public boolean isDeviceProtectedStorage() { return false; }
+    public boolean isRestricted() { return false; }
+    public boolean isUiContext() { return true; }
+    public String getOpPackageName() { return getPackageName(); }
+    public String getAttributionTag() { return null; }
+    public String getPackageCodePath() { return "/data/app/" + getPackageName() + "/base.apk"; }
+    public String getPackageResourcePath() { return getPackageCodePath(); }
+    public android.content.res.AssetManager getAssets() { return getResources().getAssets(); }
+    public java.io.File getCodeCacheDir() { return new java.io.File(getCacheDir(), "code_cache"); }
+    public java.io.File getNoBackupFilesDir() { return new java.io.File(getFilesDir().getParentFile(), "no_backup"); }
+    public java.io.File getDataDir() { return getFilesDir().getParentFile(); }
+    public java.io.File getExternalFilesDir(String type) { return null; }
+    public java.io.File[] getExternalFilesDirs(String type) { return new java.io.File[0]; }
+    public java.io.File getExternalCacheDir() { return null; }
+    public java.io.File getObbDir() { return null; }
+    public java.io.File getDir(String name, int mode) { return new java.io.File(getDataDir(), "app_" + name); }
+    public java.io.File getDatabasePath(String name) { return new java.io.File(new java.io.File(getDataDir(), "databases"), name); }
+    public java.io.File getFileStreamPath(String name) { return new java.io.File(getFilesDir(), name); }
+    public String[] fileList() { return new String[0]; }
+    public boolean deleteFile(String name) { return false; }
+    public java.io.FileInputStream openFileInput(String name) throws java.io.FileNotFoundException { throw new java.io.FileNotFoundException(name); }
+    public boolean deleteSharedPreferences(String name) { return true; }
+    public boolean moveSharedPreferencesFrom(Context c, String name) { return true; }
+    public final <T> T getSystemService(Class<T> c) { String n = getSystemServiceName(c); return n == null ? null : c.cast(getSystemService(n)); }
+    public String getSystemServiceName(Class<?> c) {
+        String n = c.getName();
+        if (n.equals("android.view.LayoutInflater")) return LAYOUT_INFLATER_SERVICE;
+        if (n.equals("android.view.inputmethod.InputMethodManager")) return INPUT_METHOD_SERVICE;
+        if (n.equals("android.view.WindowManager")) return WINDOW_SERVICE;
+        if (n.equals("android.content.ClipboardManager")) return CLIPBOARD_SERVICE;
+        if (n.equals("android.app.NotificationManager")) return NOTIFICATION_SERVICE;
+        if (n.equals("android.app.AlarmManager")) return ALARM_SERVICE;
+        if (n.equals("android.view.accessibility.AccessibilityManager")) return "accessibility";
+        if (n.equals("android.app.UiModeManager")) return "uimode";
+        if (n.equals("android.os.PowerManager")) return "power";
+        if (n.equals("android.app.LocaleManager")) return "locale";
+        if (n.equals("android.app.ActivityManager")) return "activity";
+        return null;
+    }
+    public Intent registerReceiver(BroadcastReceiver r, IntentFilter f) { return null; }
+    public Intent registerReceiver(BroadcastReceiver r, IntentFilter f, int flags) { return null; }
+    public Intent registerReceiver(BroadcastReceiver r, IntentFilter f, String perm, android.os.Handler h) { return null; }
+    public Intent registerReceiver(BroadcastReceiver r, IntentFilter f, String perm, android.os.Handler h, int flags) { return null; }
+    public void unregisterReceiver(BroadcastReceiver r) {}
+    public void sendBroadcast(Intent i, String perm) {}
+    public void sendOrderedBroadcast(Intent i, String perm) {}
+    public void startActivity(Intent intent, android.os.Bundle options) { startActivity(intent); }
+    public void startActivities(Intent[] intents) { for (Intent i : intents) startActivity(i); }
+    public void startActivities(Intent[] intents, android.os.Bundle options) { startActivities(intents); }
+    public ComponentName startForegroundService(Intent i) { return null; }
+    public boolean bindService(Intent i, ServiceConnection c, int flags) { return false; }
+    public void unbindService(ServiceConnection c) {}
+    public void grantUriPermission(String pkg, android.net.Uri uri, int flags) {}
+    public void revokeUriPermission(android.net.Uri uri, int flags) {}
+    public android.view.Display getDisplay() { return null; }
+    public int getUserId() { return 0; }
+    public java.util.concurrent.Executor getMainExecutor() { return new java.util.concurrent.Executor() { public void execute(Runnable r) { new android.os.Handler(android.os.Looper.getMainLooper()).post(r); } }; }
+    public void registerComponentCallbacks(ComponentCallbacks c) {}
+    public void unregisterComponentCallbacks(ComponentCallbacks c) {}
+    public int getWallpaperDesiredMinimumWidth() { return 0; }
 }

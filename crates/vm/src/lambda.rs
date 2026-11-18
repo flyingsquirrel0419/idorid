@@ -420,6 +420,11 @@ impl Vm {
     }
 
     /// Adapts a value between descriptor kinds (box, unbox, widen).
+    /// Boxing/unboxing/widening between descriptor kinds (also used by reflection).
+    pub(crate) fn lambda_convert(&mut self, have: u8, want: u8, v: u64) -> JResult<u64> {
+        self.convert(have, want, v)
+    }
+
     fn convert(&mut self, have: u8, want: u8, v: u64) -> JResult<u64> {
         if have == want || (is_ref(have) && is_ref(want)) || have == b'V' {
             return Ok(v);

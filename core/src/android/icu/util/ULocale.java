@@ -1,0 +1,3 @@
+package android.icu.util;
+import java.util.Locale;
+public final class ULocale { private final Locale locale; public ULocale(String name){locale=Locale.forLanguageTag(name);} public static ULocale getDefault(){return new ULocale(Locale.getDefault().toLanguageTag());} public static ULocale forLocale(Locale locale){return new ULocale(locale.toLanguageTag());} public static ULocale addLikelySubtags(ULocale locale){return locale;} public String getScript(){String l=locale.getLanguage();return l.equals("ar")?"Arab":l.equals("he")?"Hebr":l.equals("zh")?"Hans":l.equals("ja")?"Jpan":l.equals("ko")?"Kore":"Latn";} public Locale toLocale(){return locale;} public String toString(){return locale.toString();} }

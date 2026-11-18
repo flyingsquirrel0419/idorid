@@ -47,7 +47,10 @@ public class Configuration implements Parcelable, Comparable<Configuration> {
     public int getLayoutDirection() { return 0; }
     public void setLayoutDirection(java.util.Locale l) {}
     public void setLocale(java.util.Locale l) { locale = l; }
+    public android.os.LocaleList getLocales() { return new android.os.LocaleList(locale); }
+    public void setLocales(android.os.LocaleList l) { if (l != null && l.size() > 0) locale = l.get(0); }
     public int compareTo(Configuration o) { return diff(o) == 0 ? 0 : 1; }
+    public boolean equals(Configuration o) { return o != null && diff(o) == 0; }
     public boolean equals(Object o) { return o instanceof Configuration && diff((Configuration) o) == 0; }
     public int hashCode() { return orientation * 31 + uiMode * 17 + screenWidthDp; }
     public String toString() { return "{" + fontScale + " ?mcc?mnc " + locale + " sw" + smallestScreenWidthDp + "dp w" + screenWidthDp + "dp h" + screenHeightDp + "dp " + densityDpi + "dpi port night=" + isNightModeActive() + "}"; }

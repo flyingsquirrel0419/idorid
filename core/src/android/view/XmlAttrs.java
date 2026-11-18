@@ -22,6 +22,12 @@ public final class XmlAttrs implements AttributeSet {
         }
         names = n; values = v; ctx = c;
     }
+    /** idorid: attributes with known resource ids (from a parsed XML file). */
+    public static XmlAttrs idoridFrom(String[] n, int[] ids, String[] v, android.content.Context c) {
+        String[] names = new String[n.length];
+        for (int i = 0; i < n.length; i++) names[i] = ids[i] != 0 ? n[i] + '\u0005' + ids[i] : n[i];
+        return new XmlAttrs(names, v.clone(), c);
+    }
     public static final XmlAttrs EMPTY = new XmlAttrs(new String[0], new String[0]);
     /** Attributes whose references are identities, not values to resolve. */
     private static final String REF_NAMES = ",id,layout,src,srcCompat,style,theme,background,foreground,drawableLeft,drawableRight,drawableTop,drawableBottom,drawableStart,drawableEnd,button,thumb,track,progressDrawable,divider,listSelector,entries,menu,"
