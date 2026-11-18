@@ -112,7 +112,27 @@ public class View {
     public void setOnFocusChangeListener(OnFocusChangeListener l) { focusListener = l; }
     public OnFocusChangeListener getOnFocusChangeListener() { return focusListener; }
     public void setOnKeyListener(OnKeyListener l) {}
-    public void addOnAttachStateChangeListener(OnAttachStateChangeListener l) {}
+    private java.util.ArrayList<OnAttachStateChangeListener> attachListeners;
+    boolean mAttached;
+    public void addOnAttachStateChangeListener(OnAttachStateChangeListener l) { if (attachListeners == null) attachListeners = new java.util.ArrayList<OnAttachStateChangeListener>(); attachListeners.add(l); }
+    public void removeOnAttachStateChangeListener(OnAttachStateChangeListener l) { if (attachListeners != null) attachListeners.remove(l); }
+    void idoridAttached() { if (mParent instanceof View && ((View) mParent).mAttached) attachTree(true); }
+    void idoridDetached() { if (mAttached) attachTree(false); }
+    /** idorid: attach/detach this subtree to the (single) window. */
+    public void idoridSetAttached(boolean a) { if (a != mAttached) attachTree(a); }
+    void attachTree(boolean attach) {
+        if (attach == mAttached) return;
+        mAttached = attach;
+        if (attach) {
+            onAttachedToWindow();
+            if (attachListeners != null) for (OnAttachStateChangeListener l : new java.util.ArrayList<OnAttachStateChangeListener>(attachListeners)) l.onViewAttachedToWindow(this);
+        } else {
+            onDetachedFromWindow();
+            if (attachListeners != null) for (OnAttachStateChangeListener l : new java.util.ArrayList<OnAttachStateChangeListener>(attachListeners)) l.onViewDetachedFromWindow(this);
+        }
+    }
+    protected void onAttachedToWindow() {}
+    protected void onDetachedFromWindow() {}
     public boolean performClick() {
         if (mOnClickListener != null) { mOnClickListener.onClick(this); return true; }
         return false;
@@ -318,7 +338,7 @@ public class View {
     public void getDrawingRect(android.graphics.Rect r) { r.set(mScrollX, mScrollY, mScrollX + getWidth(), mScrollY + getHeight()); }
     public int getBaseline() { return -1; }
     public ViewTreeObserver getViewTreeObserver() { return new ViewTreeObserver(); }
-    public boolean isAttachedToWindow() { return mParent != null; }
+    public boolean isAttachedToWindow() { return mAttached; }
     public android.os.IBinder getWindowToken() { return null; }
     public android.os.IBinder getApplicationWindowToken() { return null; }
     public void setSoundEffectsEnabled(boolean b) {}
@@ -345,6 +365,7 @@ public class View {
     public final void idoridJson(StringBuilder sb) {
         sb.append("{\"id\":").append(idoridUid);
         Json.key(sb, "type"); Json.str(sb, idoridType());
+        Json.key(sb, "frame"); sb.append('[').append(mLeft).append(',').append(mTop).append(',').append(getWidth()).append(',').append(getHeight()).append(']');
         if (visibility != VISIBLE) { Json.key(sb, "visible"); sb.append(visibility == INVISIBLE ? "\"invisible\"" : "false"); }
         if (pl != 0 || pt != 0 || pr != 0 || pb != 0) { Json.key(sb, "padding"); sb.append('[').append(pl).append(',').append(pt).append(',').append(pr).append(',').append(pb).append(']'); }
         if (bgColor != 0) { Json.key(sb, "bg"); Json.str(sb, android.graphics.Color.toHex(bgColor)); }

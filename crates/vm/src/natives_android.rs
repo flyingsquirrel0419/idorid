@@ -21,6 +21,26 @@ fn mirror_class(vm: &Vm, r: u32) -> Option<crate::ClassId> {
 
 pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
     m.insert(
+        "Landroid/view/VMText;->measure(Ljava/lang/String;FIF)J",
+        |vm, a| {
+            let text = vm.rust_string(a[0]).unwrap_or_default();
+            let size = f32::from_bits(a[1]);
+            let flags = a[2] as i32;
+            let max = f32::from_bits(a[3]);
+            let (w, h) = match &vm.text_measurer {
+                Some(f) => f(&text, size, flags, max),
+                None => crate::metrics::approximate(&text, size, flags, max),
+            };
+            Ok((w.max(0.0).ceil() as u32 as u64) | ((h.max(0.0).ceil() as u32 as u64) << 32))
+        },
+    );
+    m.insert("Landroid/widget/VMImage;->size(I)J", |vm, a| {
+        Ok(match vm.image_sizer.as_ref().and_then(|f| f(a[0])) {
+            Some((w, h)) => w as u64 | (h as u64) << 32,
+            None => 0,
+        })
+    });
+    m.insert(
         "Landroid/view/VMViews;->overridesOnDraw(Landroid/view/View;)Z",
         |vm, a| overrides_view(vm, a[0], "onDraw(Landroid/graphics/Canvas;)V"),
     );

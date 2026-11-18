@@ -33,6 +33,18 @@ public class Spinner extends AdapterView<SpinnerAdapter> {
     public View getSelectedView() { return selected < 0 ? null : getChildAt(selected); }
     public void setPrompt(CharSequence p) {}
     void onRowClicked(View row, int pos) { setSelection(pos); }
+    protected void onMeasure(int ws, int hs) {
+        float w = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            View c = getChildAt(i);
+            CharSequence t = c instanceof TextView ? ((TextView) c).getText() : "";
+            w = Math.max(w, android.view.VMText.width(t.toString(), 16f, 0));
+        }
+        int width = resolveSize(Math.max(getSuggestedMinimumWidth(), (int) Math.ceil(w) + 48 + getPaddingLeft() + getPaddingRight()), ws);
+        int height = resolveSize(Math.max(getSuggestedMinimumHeight(), 48), hs);
+        setMeasuredDimension(width, height);
+    }
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {}
     protected String idoridType() { return "Spinner"; }
     protected void idoridProps(StringBuilder sb) {
         Json.key(sb, "selected"); sb.append(selected);

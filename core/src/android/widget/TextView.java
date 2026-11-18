@@ -54,6 +54,7 @@ public class TextView extends View {
     public void setText(CharSequence t) { setText(t, BufferType.NORMAL); }
     public void setText(CharSequence t, BufferType type) {
         CharSequence old = text;
+        requestLayout();
         if (watchers != null) for (TextWatcher w : new ArrayList<TextWatcher>(watchers)) w.beforeTextChanged(old, 0, old.length(), t == null ? 0 : t.length());
         text = t == null ? "" : t;
         onSetText();
@@ -69,11 +70,11 @@ public class TextView extends View {
     public CharSequence getText() { return text; }
     public void append(CharSequence t) { setText(text.toString() + t); }
     public int length() { return text.length(); }
-    public void setHint(CharSequence h) { hint = h; }
+    public void setHint(CharSequence h) { hint = h; requestLayout(); }
     public final void setHint(int resid) { hint = getContext().getResources().getText(resid); }
     public CharSequence getHint() { return hint; }
-    public void setTextSize(float sp) { textSize = sp; }
-    public void setTextSize(int unit, float size) { textSize = unit == 0 ? size : size; }
+    public void setTextSize(float sp) { textSize = sp; requestLayout(); }
+    public void setTextSize(int unit, float size) { textSize = unit == 0 ? size : size; requestLayout(); }
     public float getTextSize() { return textSize; }
     public void setTextColor(int c) { textColor = c; hasTextColor = true; }
     public void setTextColor(android.content.res.ColorStateList c) { setTextColor(c.getDefaultColor()); }
@@ -81,15 +82,15 @@ public class TextView extends View {
     public void setHintTextColor(int c) { hintColor = c; }
     public void setGravity(int g) { gravity = g; }
     public int getGravity() { return gravity; }
-    public void setTypeface(Typeface tf) { style = tf == null ? 0 : tf.getStyle(); }
-    public void setTypeface(Typeface tf, int s) { style = s; }
+    public void setTypeface(Typeface tf) { style = tf == null ? 0 : tf.getStyle(); requestLayout(); }
+    public void setTypeface(Typeface tf, int s) { style = s; requestLayout(); }
     public Typeface getTypeface() { return Typeface.defaultFromStyle(style); }
-    public void setAllCaps(boolean b) { allCaps = b; }
-    public void setMaxLines(int n) { maxLines = n; }
-    public void setLines(int n) { maxLines = n; }
+    public void setAllCaps(boolean b) { allCaps = b; requestLayout(); }
+    public void setMaxLines(int n) { maxLines = n; requestLayout(); }
+    public void setLines(int n) { maxLines = n; requestLayout(); }
     public void setMinLines(int n) {}
-    public void setSingleLine() { maxLines = 1; }
-    public void setSingleLine(boolean b) { maxLines = b ? 1 : -1; }
+    public void setSingleLine() { maxLines = 1; requestLayout(); }
+    public void setSingleLine(boolean b) { maxLines = b ? 1 : -1; requestLayout(); }
     public void setEllipsize(android.text.TextUtils.TruncateAt w) {}
     public void setLineSpacing(float add, float mult) {}
     public void setLetterSpacing(float s) {}
@@ -118,6 +119,54 @@ public class TextView extends View {
     /** idorid: return key pressed. */
     public void idoridEditorAction() { if (editorListener != null) editorListener.onEditorAction(this, 6, null); }
 
+    /** Text as shown (all-caps and password transforms applied). */
+    CharSequence displayText() {
+        CharSequence t = text.length() > 0 ? text : (hint != null ? hint : "");
+        if (allCaps) t = t.toString().toUpperCase();
+        if ((inputType & 0xfff) == 0x81 || (inputType & 0xfff) == 0x12 || (inputType & 0xfff) == 0xe1) {
+            StringBuilder b = new StringBuilder(); for (int i = 0; i < t.length(); i++) b.append('\u2022'); t = b;
+        }
+        return t;
+    }
+    int textFlags() {
+        int f = (style & 1) != 0 ? android.view.VMText.BOLD : 0;
+        if ((style & 2) != 0) f |= android.view.VMText.ITALIC;
+        if (maxLines > 0) f |= Math.min(maxLines, 255) << 8;
+        return f;
+    }
+    protected void onMeasure(int ws, int hs) {
+        int wMode = MeasureSpec.getMode(ws), wSize = MeasureSpec.getSize(ws);
+        int hMode = MeasureSpec.getMode(hs), hSize = MeasureSpec.getSize(hs);
+        String shown = displayText().toString();
+        int padH = getPaddingLeft() + getPaddingRight(), padV = getPaddingTop() + getPaddingBottom();
+        int extraW = idoridExtraWidth();
+        int width;
+        if (wMode == MeasureSpec.EXACTLY) width = wSize;
+        else {
+            float max = wMode == MeasureSpec.AT_MOST ? Math.max(0, wSize - padH - extraW) : 0;
+            long m = android.view.VMText.measure(shown, textSize, textFlags(), max);
+            width = android.view.VMText.widthOf(m) + padH + extraW;
+            width = Math.max(width, getSuggestedMinimumWidth());
+            if (wMode == MeasureSpec.AT_MOST) width = Math.min(width, wSize);
+        }
+        long m = android.view.VMText.measure(shown, textSize, textFlags(), Math.max(1, width - padH - extraW));
+        int height;
+        if (hMode == MeasureSpec.EXACTLY) height = hSize;
+        else {
+            height = Math.max(android.view.VMText.heightOf(m), idoridExtraHeight()) + padV;
+            height = Math.max(height, getSuggestedMinimumHeight());
+            if (hMode == MeasureSpec.AT_MOST) height = Math.min(height, hSize);
+        }
+        setMeasuredDimension(width, height);
+    }
+    /** idorid: room for a compound button / switch beside the text. */
+    int idoridExtraWidth() { return 0; }
+    int idoridExtraHeight() { return 0; }
+    public int getLineHeight() { return Math.round(textSize * 1.17f); }
+    public int getLineCount() { return Math.max(1, android.view.VMText.heightOf(android.view.VMText.measure(displayText().toString(), textSize, textFlags(), Math.max(1, getWidth() - getPaddingLeft() - getPaddingRight()))) / Math.max(1, getLineHeight())); }
+    public int getBaseline() { return getPaddingTop() + Math.round(textSize * 0.93f); }
+    public int getMaxLines() { return maxLines; }
+    public boolean isAllCaps() { return allCaps; }
     protected String idoridType() { return "TextView"; }
     protected void idoridProps(StringBuilder sb) {
         Json.key(sb, "text"); Json.str(sb, allCaps ? text.toString().toUpperCase() : text);

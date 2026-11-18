@@ -101,7 +101,9 @@ fn paint_canvas_touch_and_clear() {
     let v = ui(&app.launch());
     let canvas = find(&v["root"], &|n| n.get("draw").is_some()).expect("canvas view");
     assert_eq!(canvas["touch"], true);
-    assert_eq!(canvas["draw"].as_array().unwrap().len(), 0);
+    // layout gives the canvas its size on the first frame, so it draws immediately
+    assert!(canvas["frame"][2].as_i64().unwrap() > 0);
+    assert!(!canvas["draw"].as_array().unwrap().is_empty());
     let canvas_id = id(canvas);
     let clear_id = id(by_text(&v, "Clear"));
     let v = ui(&app.set_size(canvas_id, 320, 480));

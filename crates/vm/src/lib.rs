@@ -9,6 +9,7 @@ mod debuginfo;
 pub mod heap;
 mod interp;
 mod lambda;
+pub mod metrics;
 mod natives;
 mod natives_android;
 pub mod regex;
@@ -234,6 +235,10 @@ pub struct Vm {
     lambdas: lambda::Lambdas,
     /// Last descriptor that was not found (explains linkage failures).
     missing: Option<Rc<str>>,
+    /// Host font metrics (see metrics.rs); None = built-in approximation.
+    pub text_measurer: Option<metrics::TextMeasurer>,
+    /// Bitmap resource intrinsic sizes, supplied by the host crate.
+    pub image_sizer: Option<metrics::ImageSizer>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -310,6 +315,8 @@ impl Vm {
             well_known: WellKnown::default(),
             lambdas: lambda::Lambdas::default(),
             missing: None,
+            text_measurer: None,
+            image_sizer: None,
         };
         vm.add_dex(Rc::from(CORE_DEX))
             .expect("bundled core.dex is valid");

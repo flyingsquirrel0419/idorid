@@ -25,6 +25,12 @@ public class ProgressBar extends View {
     public synchronized void setIndeterminate(boolean b) { indeterminate = b; }
     public synchronized boolean isIndeterminate() { return indeterminate; }
     public synchronized void incrementProgressBy(int d) { setProgress(progress + d); }
+    protected void onMeasure(int ws, int hs) {
+        boolean bar = !indeterminate || this instanceof SeekBar;
+        int dw = bar ? 200 : 48, dh = this instanceof SeekBar ? 32 : bar ? 16 : 48;
+        setMeasuredDimension(resolveSize(Math.max(dw + getPaddingLeft() + getPaddingRight(), getSuggestedMinimumWidth()), ws),
+                             resolveSize(Math.max(dh + getPaddingTop() + getPaddingBottom(), getSuggestedMinimumHeight()), hs));
+    }
     protected String idoridType() { return "ProgressBar"; }
     protected void idoridProps(StringBuilder sb) {
         Json.key(sb, "progress"); sb.append(progress);

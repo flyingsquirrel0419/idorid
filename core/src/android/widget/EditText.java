@@ -5,10 +5,15 @@ import android.text.SpannableStringBuilder;
 import android.util.AttributeSet;
 public class EditText extends TextView {
     private SpannableStringBuilder editable;
-    public EditText(Context c) { super(c); }
-    public EditText(Context c, AttributeSet a) { super(c, a); }
-    public EditText(Context c, AttributeSet a, int s) { super(c, a, s); }
-    public EditText(Context c, AttributeSet a, int s, int r) { super(c, a, s, r); }
+    public EditText(Context c) { super(c); editDefaults(); }
+    public EditText(Context c, AttributeSet a) { super(c, a); editDefaults(); }
+    public EditText(Context c, AttributeSet a, int s) { super(c, a, s); editDefaults(); }
+    public EditText(Context c, AttributeSet a, int s, int r) { super(c, a, s, r); editDefaults(); }
+    private void editDefaults() {
+        if (getPaddingLeft() == 0 && getPaddingTop() == 0 && getPaddingRight() == 0 && getPaddingBottom() == 0) setPadding(4, 12, 4, 12);
+        if (getMinimumHeight() == 0) setMinimumHeight(48);
+        if (getGravity() == 0) setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+    }
     void onSetText() { editable = null; }
     public Editable getText() {
         if (editable == null) {

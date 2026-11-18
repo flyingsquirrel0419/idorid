@@ -176,9 +176,43 @@ public final class ActivityThread {
     static void showDialog(Dialog d) { if (!dialogs.contains(d)) dialogs.add(d); }
     static void dismissDialog(Dialog d) { dialogs.remove(d); }
 
+    /** Content area in points (host reports it; safe areas already removed). */
+    static int winW = 390, winH = 760;
+
+    public static String setWindowSize(int w, int h) {
+        if (w > 0 && h > 0 && (w != winW || h != winH)) {
+            winW = w; winH = h;
+            android.util.DisplayMetrics dm = base == null ? null : base.getResources().getDisplayMetrics();
+            if (dm != null) { dm.widthPixels = w; dm.heightPixels = h; }
+            Activity t = top();
+            if (t != null) t.mContent.requestLayout();
+        }
+        return settle();
+    }
+
+    /** Android's measure + layout pass on the visible windows. */
+    private static void layoutWindows(Activity t) {
+        if (t != null) {
+            View root = t.mContent;
+            root.idoridSetAttached(true);
+            root.measure(View.MeasureSpec.makeMeasureSpec(winW, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(winH, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+        }
+        for (int i = 0; i < dialogs.size(); i++) {
+            View c = dialogs.get(i).content;
+            if (c == null) continue;
+            if (c.getLayoutParams() == null) c.setLayoutParams(new android.view.ViewGroup.LayoutParams(-1, -2));
+            c.idoridSetAttached(true);
+            c.measure(View.MeasureSpec.makeMeasureSpec(Math.max(0, winW - 80), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(winH * 2 / 3, View.MeasureSpec.AT_MOST));
+            c.layout(0, 0, c.getMeasuredWidth(), c.getMeasuredHeight());
+        }
+        View.idoridTakeLayoutRequest();
+    }
+
     private static String dump(long nextMs) {
         StringBuilder sb = new StringBuilder(1024);
         Activity t = top();
+        try { layoutWindows(t); } catch (Throwable e) { fail(e); }
         sb.append("{\"title\":");
         Json.str(sb, t == null ? appLabel : (t.mTitle == null ? appLabel : t.mTitle));
         sb.append(",\"finished\":").append(allFinished || t == null);
