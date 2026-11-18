@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/flyingsquirrel0419/idorid"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release-ffi]
+inherits = "release"
+panic = "unwind"

@@ -1,0 +1,5 @@
+/target
+*.ipa
+/build
+.DS_Store
+/tests/out
