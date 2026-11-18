@@ -39,7 +39,15 @@ $ idorid run examples/todo.apk
 That is an **unmodified APK** built with the stock Android SDK (`aapt2` + `d8`):
 its `classes.dex` is interpreted, its `resources.arsc` and binary layout XML are
 parsed, and its `Activity` goes through the real lifecycle. On iOS the same view
-tree becomes `UIStackView`s, `UILabel`s, `UIButton`s and `UITextField`s.
+tree becomes native `UILabel`s, `UIButton`s and `UITextField`s placed at the
+frames computed by Android's own measure/layout algorithm.
+
+**New in 0.2: real AndroidX apps.** The Android Studio *Empty Views Activity*
+template, built by Gradle with R8 (`AppCompatActivity`, Material 3 theme,
+`MaterialButton`, `ConstraintLayout`), runs unmodified: the AndroidX and
+Material Components code inside the APK is executed as-is, themes and styles
+resolve through `resources.arsc`, and `ConstraintLayout` from the APK lays the
+screen out. Kotlin apps work too (the Kotlin stdlib is just more bytecode).
 
 ## Why this is different
 
@@ -74,7 +82,9 @@ APK ──zip──▶ classes*.dex (zero-copy)        AndroidManifest.xml / res
                  · lazy class linking, lazy method decoding
                    │  + core.dex: our own java.lang / java.util / android.* (Java, ~360 KB)
                    ▼
-     UI tree (JSON) ──▶ idorid-ffi (C ABI) ──▶ Swift/UIKit host on iPhone
+     Android measure/layout in Java (real LinearLayout, RelativeLayout, ConstraintLayout from the APK, ...)
+                   │
+     UI tree + frames (JSON) ──▶ idorid-ffi (C ABI) ──▶ Swift/UIKit host on iPhone
                     └─▶ idorid-cli (headless; used by tests)
 ```
 
@@ -91,13 +101,27 @@ APK ──zip──▶ classes*.dex (zero-copy)        AndroidManifest.xml / res
 
 ## What works today
 
-**Runtime:** the whole Dalvik instruction set except `invoke-polymorphic` /
-`invoke-custom` (d8 desugars lambdas for `minSdk < 26`), exceptions with stack
+**Runtime:** the whole Dalvik instruction set except `invoke-polymorphic`
+(`invoke-custom` lambdas via `LambdaMetafactory` are supported), reflection
+(`Constructor`/`Method`/`Field`), Kotlin and its stdlib, exceptions with stack
 traces and line numbers, static initializers, interfaces with default methods,
 inner/anonymous classes, enums, string switch, multi-dimensional arrays,
 `String.format`, a regex subset (`split`, `matches`, `replaceAll`), boxing,
 `java.util` collections with JDK-identical iteration order, `java.util.concurrent`
 basics, cooperative `Thread`s, `Handler.postDelayed` timers.
+
+**AndroidX:** `AppCompatActivity`, `AppCompatDelegate` (theme checks, sub-decor,
+view inflation factory), Material 3 themes and `MaterialButton` (shape
+backgrounds drawn through `Canvas`), `ConstraintLayout`. Bigger AndroidX
+surfaces (RecyclerView, Toolbar menus, TextInputLayout, CoordinatorLayout) are
+the current focus.
+
+**Framework:** Android's measure/layout pass, themes and styles
+(`obtainStyledAttributes`, `TypedArray`, `?attr`, `textAppearance`,
+configuration-qualified resources, framework resources), drawable XML
+(shape, selector, layer-list, inset, ripple, vector), `Canvas` custom views
+with touch, real touch dispatch (`onInterceptTouchEvent`), `ValueAnimator`,
+`java.math`, `java.text`.
 
 **Android:** `Activity` (lifecycle, `startActivity` with extras,
 `startActivityForResult`, back stack), layout XML inflation (`<include>`,
@@ -107,10 +131,11 @@ basics, cooperative `Thread`s, `Handler.postDelayed` timers.
 `Spinner`, `ListView`/`GridView` + `ArrayAdapter`/`BaseAdapter`, `AlertDialog`,
 `Toast`, `Log`, string/color/dimen resources, `SharedPreferences` (in memory).
 
-**Not yet:** native `.so` libraries (JNI), AndroidX/AppCompat/Jetpack Compose
-apps, `Canvas` drawing and custom `onDraw`, images, networking, files,
-databases, sound, sensors, real threads. Apps that need these will start and
-then hit a clear error. See the [roadmap](#roadmap).
+**Not yet:** native `.so` libraries (JNI), Jetpack Compose, networking,
+files, databases, sound, sensors, real threads (threads run cooperatively),
+WebView. Apps that need these will start and then hit a clear error. See the
+[roadmap](#roadmap). `idorid missing app.apk` lists every framework API an app
+references that idorid does not provide yet.
 
 Native libraries are the hard wall: they are ARM64 ELF code, and iOS will only
 execute code signed into the app. Future options are build-time static
@@ -126,7 +151,9 @@ translation into the IPA, or an ARM64 interpreter. Neither is a weekend project.
 3. Open idorid, tap **+**, pick an `.apk` from Files (or share an APK to
    idorid), and tap it to run.
 
-Good first APKs: `examples/todo.apk` and `tests/fixtures/sample.apk` in this repo.
+The app ships with demos: Todo (views, dialogs, preferences), Paint (Canvas
+custom view, touch, animation), Calc (Kotlin), Hello AndroidX (the Android
+Studio template), Planets (AndroidX showcase, in progress).
 
 ## Build
 
@@ -166,13 +193,13 @@ for the examples.
 
 ## Roadmap
 
-- [ ] Canvas / custom views via Core Graphics, `ImageView` bitmaps (PNG/WebP from the APK)
-- [ ] Persistent `SharedPreferences` and app-private files
+- [x] Canvas / custom views, touch dispatch, vector drawables
+- [x] Kotlin apps, `invoke-custom` lambdas, reflection
+- [x] Android measure/layout, themes/styles, AndroidX AppCompat + Material 3 + ConstraintLayout
+- [ ] RecyclerView, Toolbar/action bar menus, Fragments, CoordinatorLayout behaviors
 - [ ] Faster interpreter: pre-decoded handlers, field-offset quickening, string fast paths
 - [ ] Green threads (the non-recursive interpreter is already built for it)
-- [ ] `invoke-custom` / `LambdaMetafactory` for `minSdk ≥ 26` apps
-- [ ] Kotlin stdlib smoke tests, AndroidX `AppCompatActivity` compatibility layer
-- [ ] Networking (`HttpURLConnection`) over `URLSession`
+- [ ] Networking (`HttpURLConnection`/OkHttp) over `URLSession`, files, SQLite
 - [ ] Research: static ARM64 → signed-code translation for JNI libraries
 
 ## Project layout
@@ -199,7 +226,10 @@ framework APIs are usually small, self-contained Java additions in
 ## Credits
 
 Built by a human with Claude Code and OpenAI Codex (`gpt-6.1-terra`) working as
-pair programmers. Not affiliated with Google or Apple. Android is a trademark
+pair programmers. idorid re-implements Android APIs from their public
+documentation. The only AOSP-derived data is a trimmed copy of the framework
+resource table (`crates/apk/framework-res.bin`, Apache-2.0), used to resolve
+`android:` themes and attributes. Not affiliated with Google or Apple. Android is a trademark
 of Google LLC.
 
 ## License
