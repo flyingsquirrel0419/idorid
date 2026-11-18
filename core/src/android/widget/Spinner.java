@@ -10,7 +10,7 @@ public class Spinner extends AbsSpinner {
     private SpinnerAdapter adapter;
     private int selected = -1;
     public Spinner(Context c) { super(c); }
-    public Spinner(Context c, AttributeSet a) { super(c, a); }
+    public Spinner(Context c, AttributeSet a) { this(c, a, 16842881 /*spinnerStyle*/); }
     public Spinner(Context c, AttributeSet a, int s) { super(c, a, s); }
     public SpinnerAdapter getAdapter() { return adapter; }
     public void setAdapter(SpinnerAdapter a) {

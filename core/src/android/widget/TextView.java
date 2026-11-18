@@ -30,26 +30,54 @@ public class TextView extends View {
     ArrayList<TextWatcher> watchers;
     private OnEditorActionListener editorListener;
 
-    public TextView(Context c) { super(c); }
-    public TextView(Context c, AttributeSet a) { this(c, a, 0); }
+    public TextView(Context c) { this(c, null); }
+    public TextView(Context c, AttributeSet a) { this(c, a, 16842884 /*textViewStyle*/); }
     public TextView(Context c, AttributeSet a, int s) { this(c, a, s, 0); }
     public TextView(Context c, AttributeSet a, int s, int r) {
         super(c, a, s, r);
-        if (a instanceof XmlAttrs) {
-            XmlAttrs x = (XmlAttrs) a;
-            String t = x.string("text");
-            if (t != null) text = t;
-            hint = x.string("hint");
-            textSize = x.dimension("textSize", textSize);
-            if (x.has("textColor")) { textColor = x.integer("textColor", 0); hasTextColor = true; }
-            if (x.has("textColorHint")) hintColor = x.integer("textColorHint", 0);
-            gravity = x.integer("gravity", 0);
-            String ts = x.string("textStyle");
-            if (ts != null) style = ts.contains("bold") || ts.equals("1") || ts.equals("3") ? Typeface.BOLD | (ts.contains("italic") || ts.equals("3") ? 2 : 0) : ts.contains("italic") || ts.equals("2") ? Typeface.ITALIC : 0;
-            allCaps = x.bool("textAllCaps", false);
-            maxLines = x.integer("maxLines", x.bool("singleLine", false) ? 1 : x.integer("lines", -1));
-            inputType = x.integer("inputType", 0);
-        }
+        if (c == null) return;
+        android.content.res.TypedArray t = c.obtainStyledAttributes(a, TEXT_ATTRS, s, r);
+        int ap = t.getResourceId(0, 0);
+        if (ap != 0) applyAppearance(c.obtainStyledAttributes(ap, APPEARANCE_ATTRS));
+        if (t.hasValue(1)) setTextColor(t.getColorStateList(1));
+        if (t.hasValue(2)) textSize = t.getDimension(2, textSize);
+        if (t.hasValue(3)) style = t.getInt(3, style);
+        if (t.hasValue(4)) { android.content.res.ColorStateList h = t.getColorStateList(4); if (h != null) hintColor = h.getDefaultColor(); }
+        CharSequence tx = t.getText(5);
+        if (tx != null) text = tx;
+        CharSequence hn = t.getText(6);
+        if (hn != null) hint = hn;
+        gravity = t.getInt(7, gravity);
+        if (t.getBoolean(10, false)) maxLines = 1;
+        maxLines = t.getInt(8, t.getInt(9, maxLines));
+        inputType = t.getInt(11, inputType);
+        if (t.hasValue(12)) allCaps = t.getBoolean(12, false);
+        if (t.hasValue(13)) fontFamily = t.getString(13);
+        t.recycle();
+    }
+    static final int[] TEXT_ATTRS = { 16842804 /*textAppearance*/, 16842904 /*textColor*/, 16842901 /*textSize*/, 16842903 /*textStyle*/,
+        16842906 /*textColorHint*/, 16843087 /*text*/, 16843088 /*hint*/, 16842927 /*gravity*/, 16843091 /*maxLines*/, 16843092 /*lines*/,
+        16843101 /*singleLine*/, 16843296 /*inputType*/, 16843660 /*textAllCaps*/, 16843692 /*fontFamily*/ };
+    static final int[] APPEARANCE_ATTRS = { 16842904 /*textColor*/, 16842901 /*textSize*/, 16842903 /*textStyle*/, 16842906 /*textColorHint*/,
+        16843660 /*textAllCaps*/, 16843692 /*fontFamily*/ };
+    private String fontFamily;
+    private android.content.res.ColorStateList textColors;
+    private void applyAppearance(android.content.res.TypedArray t) {
+        if (t.hasValue(0)) { android.content.res.ColorStateList c = t.getColorStateList(0); if (c != null) setTextColor(c); }
+        if (t.hasValue(1)) textSize = t.getDimension(1, textSize);
+        if (t.hasValue(2)) style = t.getInt(2, style);
+        if (t.hasValue(3)) { android.content.res.ColorStateList h = t.getColorStateList(3); if (h != null) hintColor = h.getDefaultColor(); }
+        if (t.hasValue(4)) allCaps = t.getBoolean(4, false);
+        if (t.hasValue(5)) fontFamily = t.getString(5);
+        t.recycle();
+    }
+    public void setTextAppearance(int resId) { setTextAppearance(getContext(), resId); }
+    public void setTextAppearance(Context c, int resId) { if (resId != 0 && c != null) { applyAppearance(c.obtainStyledAttributes(resId, APPEARANCE_ATTRS)); requestLayout(); } }
+    protected void drawableStateChanged() { super.drawableStateChanged(); updateTextColor(); }
+    private void updateTextColor() {
+        if (textColors == null) return;
+        int c = textColors.getColorForState(getDrawableState(), textColors.getDefaultColor());
+        if (c != textColor) { textColor = c; invalidate(); }
     }
     public void setText(CharSequence t) { setText(t, BufferType.NORMAL); }
     public void setText(CharSequence t, BufferType type) {
@@ -80,8 +108,8 @@ public class TextView extends View {
     public void setTextSize(float sp) { textSize = sp; requestLayout(); }
     public void setTextSize(int unit, float size) { textSize = unit == 0 ? size : size; requestLayout(); }
     public float getTextSize() { return textSize; }
-    public void setTextColor(int c) { textColor = c; hasTextColor = true; }
-    public void setTextColor(android.content.res.ColorStateList c) { setTextColor(c.getDefaultColor()); }
+    public void setTextColor(int c) { textColors = android.content.res.ColorStateList.valueOf(c); textColor = c; hasTextColor = true; }
+    public void setTextColor(android.content.res.ColorStateList c) { if (c == null) return; textColors = c; hasTextColor = true; textColor = c.getDefaultColor(); updateTextColor(); }
     public final int getCurrentTextColor() { return hasTextColor ? textColor : 0xde000000; }
     public void setHintTextColor(int c) { hintColor = c; }
     public void setGravity(int g) { gravity = g; }
@@ -205,7 +233,7 @@ public class TextView extends View {
     public void setCompoundDrawableTintList(android.content.res.ColorStateList c) { compoundTint=c; } public android.content.res.ColorStateList getCompoundDrawableTintList() { return compoundTint; }
     public void setCompoundDrawableTintMode(android.graphics.PorterDuff.Mode m) { compoundTintMode=m; } public android.graphics.PorterDuff.Mode getCompoundDrawableTintMode() { return compoundTintMode; }
     public int getCompoundDrawablePadding() { return compoundPadding; } public int getCompoundPaddingLeft() { return getPaddingLeft(); } public int getCompoundPaddingRight() { return getPaddingRight(); } public int getCompoundPaddingTop() { return getPaddingTop(); } public int getCompoundPaddingBottom() { return getPaddingBottom(); } public int getTotalPaddingLeft() { return getCompoundPaddingLeft(); } public int getTotalPaddingRight() { return getCompoundPaddingRight(); }
-    public void setTextAppearance(int id) {} public void setTextAppearance(Context c,int id) {}
+
     public void setLinkTextColor(int color) {} public void setLinkTextColor(android.content.res.ColorStateList color) {}
     public void setShadowLayer(float radius,float dx,float dy,int color) {} public void setHighlightColor(int color) {}
     public void setAutoSizeTextTypeWithDefaults(int type) {} public void setAutoSizeTextTypeUniformWithConfiguration(int min,int max,int step,int unit) {} public void setAutoSizeTextTypeUniformWithPresetSizes(int[] sizes,int unit) {} public int getAutoSizeTextType() { return 0; } public int getAutoSizeMinTextSize() { return -1; } public int getAutoSizeMaxTextSize() { return -1; } public int getAutoSizeStepGranularity() { return -1; } public int[] getAutoSizeTextAvailableSizes() { return new int[0]; }
@@ -217,7 +245,7 @@ public class TextView extends View {
     public void setLastBaselineToBottomHeight(int h) { if(h>0) setPadding(getPaddingLeft(),getPaddingTop(),getPaddingRight(),h); }
     public int getMinLines() { return minLines; } public float getLineSpacingExtra() { return spacingExtra; } public float getLineSpacingMultiplier() { return spacingMult; } public float getLetterSpacing() { return letterSpacing; } public boolean getIncludeFontPadding() { return includeFontPadding; } public boolean isHorizontallyScrollable() { return horizontallyScrolling; }
     public void setMinWidth(int v) { setMinimumWidth(v); } public void setMinHeight(int v) { setMinimumHeight(v); } public int getMinWidth() { return getMinimumWidth(); } public int getMinHeight() { return getMinimumHeight(); } public void setMaxWidth(int v) {} public void setMinEms(int v) {} public void setMaxEms(int v) {}
-    public android.content.res.ColorStateList getTextColors() { return android.content.res.ColorStateList.valueOf(getCurrentTextColor()); } public android.content.res.ColorStateList getHintTextColors() { return android.content.res.ColorStateList.valueOf(hintColor); }
+    public android.content.res.ColorStateList getTextColors() { return textColors != null ? textColors : android.content.res.ColorStateList.valueOf(getCurrentTextColor()); } public android.content.res.ColorStateList getHintTextColors() { return android.content.res.ColorStateList.valueOf(hintColor); }
     public void beginBatchEdit() {} public void endBatchEdit() {} protected void onTextChanged(CharSequence text,int start,int before,int count) {} protected void onSelectionChanged(int start,int end) {} public int getSelectionStart() { return selectionStart; } public int getSelectionEnd() { return selectionEnd; }
     public int getLineBounds(int line,android.graphics.Rect bounds) { int top=getPaddingTop()+line*getLineHeight(); if(bounds!=null) bounds.set(getPaddingLeft(),top,getWidth()-getPaddingRight(),top+getLineHeight()); return top+getBaseline(); } public int getOffsetForPosition(float x,float y) { return Math.max(0,Math.min(text.length(),(int)(x/Math.max(1,textSize*.55f)))); }
 

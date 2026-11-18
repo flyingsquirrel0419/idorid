@@ -2,9 +2,9 @@ package android.widget;
 import android.content.Context;
 import android.util.AttributeSet;
 public class Button extends TextView {
-    public Button(Context c) { super(c); buttonDefaults(); }
-    public Button(Context c, AttributeSet a) { super(c, a); buttonDefaults(); }
-    public Button(Context c, AttributeSet a, int s) { super(c, a, s); buttonDefaults(); }
+    public Button(Context c) { this(c, null); }
+    public Button(Context c, AttributeSet a) { this(c, a, 16842824 /*buttonStyle*/); }
+    public Button(Context c, AttributeSet a, int s) { this(c, a, s, 0); }
     public Button(Context c, AttributeSet a, int s, int r) { super(c, a, s, r); buttonDefaults(); }
     /** Widget.Material.Button metrics: 48dp touch height, 88dp min width, centered text. */
     void buttonDefaults() {

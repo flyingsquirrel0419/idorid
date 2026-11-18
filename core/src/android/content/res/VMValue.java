@@ -28,6 +28,7 @@ public final class VMValue {
         try {
             switch (kind(v)) {
                 case 'f': return Float.parseFloat(body(v));
+                case 'q': { String b = body(v); return Float.parseFloat(b.endsWith("p") ? b.substring(0, b.length() - 1) : b); }
                 case 'd': return dimension(v, def);
                 case 'i': return Integer.parseInt(body(v));
                 case 's': return Float.parseFloat(body(v));
@@ -52,6 +53,14 @@ public final class VMValue {
             if (unit.equals("mm")) return f * 160f / 25.4f;
             return f;
         } catch (RuntimeException e) { return def; }
+    }
+    /** Fraction resource ("q:0.5" or "q:0.5p" for %p) scaled by base / parent base. */
+    public static float fraction(String v, float base, float pbase, float def) {
+        if (v == null) return def;
+        if (kind(v) != 'q') return floatOf(v, def) * base;
+        String b = body(v);
+        boolean parent = b.endsWith("p");
+        try { return Float.parseFloat(parent ? b.substring(0, b.length() - 1) : b) * (parent ? pbase : base); } catch (RuntimeException e) { return def; }
     }
     public static boolean boolOf(String v, boolean def) {
         if (v == null) return def;

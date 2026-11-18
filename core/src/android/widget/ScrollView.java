@@ -10,7 +10,7 @@ import android.view.XmlAttrs;
 public class ScrollView extends FrameLayout {
     private boolean fillViewport;
     public ScrollView(Context c) { super(c); }
-    public ScrollView(Context c, AttributeSet a) { this(c, a, 0); }
+    public ScrollView(Context c, AttributeSet a) { this(c, a, 16842880 /*scrollViewStyle*/); }
     public ScrollView(Context c, AttributeSet a, int s) { super(c, a, s); if (a instanceof XmlAttrs) fillViewport = ((XmlAttrs) a).bool("fillViewport", false); }
     public void setFillViewport(boolean b) { fillViewport = b; requestLayout(); }
     public boolean isFillViewport() { return fillViewport; }

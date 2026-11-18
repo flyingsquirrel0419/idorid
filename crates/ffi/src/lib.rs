@@ -157,7 +157,14 @@ impl ApkResources {
             ResValue::Dimension { value, unit: u } => {
                 format!("d:{}{}", value, unit(u))
             }
-            ResValue::Fraction { value, .. } => format!("f:{value}"),
+            ResValue::Fraction { value, unit } => format!(
+                "q:{value}{}",
+                if matches!(unit, idorid_apk::resources::FractionUnit::Parent) {
+                    "p"
+                } else {
+                    ""
+                }
+            ),
             ResValue::Color(c) => format!("c:{}", c as i32),
             ResValue::Float(f) => format!("f:{f}"),
             ResValue::Unknown { data, .. } => format!("i:{}", data as i32),

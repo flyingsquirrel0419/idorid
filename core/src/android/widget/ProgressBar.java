@@ -7,8 +7,8 @@ import android.view.XmlAttrs;
 public class ProgressBar extends View {
     int progress, max = 100;
     private boolean indeterminate = true;
-    public ProgressBar(Context c) { super(c); }
-    public ProgressBar(Context c, AttributeSet a) { this(c, a, 0); }
+    public ProgressBar(Context c) { this(c, null); }
+    public ProgressBar(Context c, AttributeSet a) { this(c, a, 16842871 /*progressBarStyle*/); }
     public ProgressBar(Context c, AttributeSet a, int s) {
         super(c, a, s);
         if (a instanceof XmlAttrs) {

@@ -4,7 +4,7 @@ import android.util.AttributeSet;
 import android.view.View;
 public class ListView extends AbsListView {
     public ListView(Context c) { super(c); }
-    public ListView(Context c, AttributeSet a) { super(c, a); }
+    public ListView(Context c, AttributeSet a) { this(c, a, 16842868 /*listViewStyle*/); }
     public ListView(Context c, AttributeSet a, int s) { super(c, a, s); }
     public void addHeaderView(View v) {}
     public void addFooterView(View v) {}

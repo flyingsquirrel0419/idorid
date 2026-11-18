@@ -75,7 +75,7 @@ public class TypedArray implements AutoCloseable {
         return (int) VMValue.dimension(v, VMValue.intOf(v, -2));
     }
     public int getLayoutDimension(int i, int def) { String v = prim(i); return v == null ? def : (int) VMValue.dimension(v, VMValue.intOf(v, def)); }
-    public float getFraction(int i, int base, int pbase, float def) { String v = prim(i); return v == null ? def : VMValue.floatOf(v, def) * base; }
+    public float getFraction(int i, int base, int pbase, float def) { return VMValue.fraction(prim(i), base, pbase, def); }
     public int getResourceId(int i, int def) { String v = v(i); return v != null && VMValue.kind(v) == 'r' ? VMValue.intOf(v, def) : def; }
     public int getSourceResourceId(int i, int def) { return def; }
     public Drawable getDrawable(int i) {
@@ -92,13 +92,13 @@ public class TypedArray implements AutoCloseable {
         String v = v(i);
         if (v == null) return 0;
         TypedValue t = new TypedValue();
-        res.fillValue(v, t, false);
+        res.fillValue(v, t, true);
         return t.type;
     }
     public boolean hasValue(int i) { return v(i) != null; }
     public boolean hasValueOrEmpty(int i) { return v(i) != null; }
-    public TypedValue peekValue(int i) { String v = v(i); if (v == null) return null; TypedValue t = new TypedValue(); res.fillValue(v, t, false); return t; }
-    public boolean getValue(int i, TypedValue out) { String v = v(i); if (v == null) return false; res.fillValue(v, out, false); return true; }
+    public TypedValue peekValue(int i) { String v = v(i); if (v == null) return null; TypedValue t = new TypedValue(); res.fillValue(v, t, true); return t; }
+    public boolean getValue(int i, TypedValue out) { String v = v(i); if (v == null) return false; res.fillValue(v, out, true); return true; }
     public String getPositionDescription() { return "idorid"; }
     public int getChangingConfigurations() { return 0; }
     public void recycle() { recycled = true; }

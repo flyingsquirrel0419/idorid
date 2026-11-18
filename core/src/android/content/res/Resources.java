@@ -95,6 +95,7 @@ public class Resources {
         String resolveRef(String v) {
             for (int guard = 0; guard < 16 && v != null && VMValue.kind(v) == 'a'; guard++) v = attrs.get(Integer.valueOf(VMValue.intOf(v, 0)));
             if (v != null && VMValue.kind(v) == 'a') return null;
+            if ("r:0".equals(v)) return null; // @null
             return v;
         }
         public int hashCode() { return key; }
@@ -153,6 +154,12 @@ public class Resources {
             case 's': out.type = 3; out.string = VMValue.body(v); break;
             case 'p': out.type = 3; out.string = VMValue.body(v); break;
             case 'f': out.type = 4; out.data = Float.floatToIntBits(VMValue.floatOf(v, 0)); break;
+            case 'q': {
+                boolean parent = VMValue.body(v).endsWith("p");
+                out.type = 6;
+                out.data = (Math.round(VMValue.floatOf(v, 0) * 32768) << 8) | (2 << 4) | (parent ? 1 : 0);
+                break;
+            }
             case 'd': out.type = 5; out.data = complexDimension(VMValue.dimension(v, 0)); break;
             case 'b': out.type = 18; out.data = VMValue.boolOf(v, false) ? -1 : 0; break;
             case 'c': out.type = 28; out.data = VMValue.intOf(v, 0); break;
@@ -200,7 +207,7 @@ public class Resources {
     public int getInteger(int id) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.intOf(v, 0); }
     public boolean getBoolean(int id) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.boolOf(v, false); }
     public float getFloat(int id) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.floatOf(v, 0); }
-    public float getFraction(int id, int base, int pbase) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.floatOf(v, 0) * base; }
+    public float getFraction(int id, int base, int pbase) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.fraction(v, base, pbase, 0); }
     public float getDimension(int id) { String v = idoridValue(id); if (v == null) throw nf(id); return VMValue.dimension(v, 0); }
     public int getDimensionPixelSize(int id) { float f = getDimension(id); int r = (int) (f >= 0 ? f + 0.5f : f - 0.5f); return r != 0 ? r : f == 0 ? 0 : f > 0 ? 1 : -1; }
     public int getDimensionPixelOffset(int id) { return (int) getDimension(id); }
@@ -214,6 +221,8 @@ public class Resources {
     public Drawable getDrawableForDensity(int id, int density, Theme t) { return getDrawable(id, t); }
     /** idorid: drawable for an encoded value (color, bitmap file, or drawable XML). */
     public Drawable drawableFor(int id, String v, Theme t) {
+        // Framework drawable files (button/edit text chrome) are not bundled: let the host draw native chrome.
+        if ((id >>> 24) == 1 && VMValue.kind(v) != 'c' && VMValue.kind(v) != 'i') return null;
         switch (VMValue.kind(v)) {
             case 'c': case 'i': return new ColorDrawable(VMValue.intOf(v, 0));
             case 'p': {

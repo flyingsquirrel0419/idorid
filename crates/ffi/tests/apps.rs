@@ -49,7 +49,7 @@ fn sample_app_counts_taps() {
     let v = ui(&app.launch());
     by_text(&v, "Hello from Android");
     let field = id(by_type(&v, "EditText"));
-    let button = id(by_text(&v, "Tap"));
+    let button = id(by_text(&v, "TAP"));
     ui(&app.set_text(field, "Kim"));
     ui(&app.click(button));
     let v = ui(&app.click(button));
@@ -66,7 +66,7 @@ fn todo_app_full_flow() {
     by_text(&v, "2 open · running for 0s");
     // add a task
     ui(&app.set_text(id(by_type(&v, "EditText")), "Buy milk"));
-    let v = ui(&app.click(id(by_text(&v, "Add"))));
+    let v = ui(&app.click(id(by_text(&v, "ADD"))));
     by_text(&v, "• Buy milk");
     assert_eq!(v["toasts"][0], "Added \"Buy milk\"");
     // complete it through the dialog
@@ -81,7 +81,7 @@ fn todo_app_full_flow() {
         == Some("• Star the repo"))
     .is_none());
     // second activity with extras
-    let v = ui(&app.click(id(by_text(&v, "About"))));
+    let v = ui(&app.click(id(by_text(&v, "ABOUT"))));
     assert_eq!(v["title"], "About");
     by_text(&v, "Open tasks: 2\nAndroid API 30 on idorid");
     let logo = by_type(&v, "ImageView");
@@ -106,7 +106,7 @@ fn paint_canvas_touch_and_clear() {
     assert!(canvas["frame"][2].as_i64().unwrap() > 0);
     assert!(!canvas["draw"].as_array().unwrap().is_empty());
     let canvas_id = id(canvas);
-    let clear_id = id(by_text(&v, "Clear"));
+    let clear_id = id(by_text(&v, "CLEAR"));
     let v = ui(&app.set_size(canvas_id, 320, 480));
     assert_eq!(v["next"], 16);
     let canvas = find(&v["root"], &|n| id(n) == canvas_id).unwrap();
@@ -180,7 +180,10 @@ fn androidx_template_app() {
         hello["frame"][2].as_i64().unwrap(),
         hello["frame"][3].as_i64().unwrap(),
     );
-    assert!((hx + hw / 2 - 195).abs() <= 2, "hello not centered: {hello}");
+    assert!(
+        (hx + hw / 2 - 195).abs() <= 2,
+        "hello not centered: {hello}"
+    );
     assert!(hy > 300 && hy < 420);
     assert_eq!(button["frame"][1].as_i64().unwrap(), hy + hh);
     // MaterialButton paints its shape background through the canvas

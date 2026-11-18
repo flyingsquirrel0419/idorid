@@ -48,42 +48,56 @@ public class View implements Drawable.Callback {
     public View(Context context, AttributeSet attrs, int defStyle) { this(context, attrs, defStyle, 0); }
     public View(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         mContext = context;
-        if (attrs instanceof XmlAttrs) applyAttrs((XmlAttrs) attrs);
+        if (context != null && (attrs != null || defStyleAttr != 0 || defStyleRes != 0)) applyStyled(context.obtainStyledAttributes(attrs, VIEW_ATTRS, defStyleAttr, defStyleRes));
     }
 
-    private void applyAttrs(XmlAttrs a) {
-        mId = a.integer("id", NO_ID);
-        int p = (int) a.dimension("padding", -1);
+    // android.R.attr ids read by View (sorted is not required: TypedArray indexes by position)
+    static final int[] VIEW_ATTRS = { 16842960 /*id*/, 16842964 /*background*/, 16842965 /*padding*/, 16842966 /*paddingLeft*/,
+        16842967 /*paddingTop*/, 16842968 /*paddingRight*/, 16842969 /*paddingBottom*/, 16843699 /*paddingStart*/, 16843700 /*paddingEnd*/,
+        16844093 /*paddingHorizontal*/, 16844094 /*paddingVertical*/, 16842972 /*visibility*/, 16842981 /*clickable*/, 16842982 /*longClickable*/,
+        16842766 /*enabled*/, 16842970 /*focusable*/, 16843071 /*minWidth*/, 16843072 /*minHeight*/, 16843551 /*alpha*/,
+        16843379 /*contentDescription*/, 16843840 /*elevation*/, 16843017 /*foreground*/, 16843375 /*onClick*/, 16842961 /*tag*/,
+        16843883 /*backgroundTint*/, 16843770 /*translationZ*/ };
+
+    private void applyStyled(android.content.res.TypedArray a) {
+        mId = a.getResourceId(0, NO_ID);
+        if (a.hasValue(1)) { try { Drawable d = a.getDrawable(1); if (d != null) { mBackground = d; d.setCallback(this); } } catch (RuntimeException e) {} }
+        int p = a.getDimensionPixelSize(2, -1);
         if (p >= 0) pl = pt = pr = pb = p;
-        int ph = (int) a.dimension("paddingHorizontal", -1), pv = (int) a.dimension("paddingVertical", -1);
+        int ph = a.getDimensionPixelSize(9, -1), pv = a.getDimensionPixelSize(10, -1);
         if (ph >= 0) pl = pr = ph;
         if (pv >= 0) pt = pb = pv;
-        pl = (int) a.dimension("paddingLeft", a.dimension("paddingStart", pl));
-        pr = (int) a.dimension("paddingRight", a.dimension("paddingEnd", pr));
-        pt = (int) a.dimension("paddingTop", pt);
-        pb = (int) a.dimension("paddingBottom", pb);
-        String bg = a.raw("background");
-        if (bg != null) {
-            if (bg.startsWith("c:")) mBackground = new ColorDrawable(a.integer("background", 0));
-            else if (bg.startsWith("r:")) { try { setBackground(getContext().getDrawable(a.integer("background", 0))); } catch (RuntimeException e) {} }
+        pl = a.getDimensionPixelSize(3, a.getDimensionPixelSize(7, pl));
+        pr = a.getDimensionPixelSize(5, a.getDimensionPixelSize(8, pr));
+        pt = a.getDimensionPixelSize(4, pt);
+        pb = a.getDimensionPixelSize(6, pb);
+        if (a.hasValue(11)) {
+            String vs = a.getNonResourceString(11);
+            int v = vs != null ? (vs.equals("gone") ? 2 : vs.equals("invisible") ? 1 : 0) : a.getInt(11, 0);
+            visibility = v == 2 ? GONE : v == 1 ? INVISIBLE : VISIBLE;
         }
-        String fg = a.raw("foreground");
-        if (fg != null && fg.startsWith("r:")) { try { mForeground = getContext().getDrawable(a.integer("foreground", 0)); } catch (RuntimeException e) {} }
-        String vis = a.string("visibility");
-        if (vis != null) visibility = vis.equals("gone") || vis.equals("2") ? GONE : vis.equals("invisible") || vis.equals("1") ? INVISIBLE : VISIBLE;
-        enabled = a.bool("enabled", true);
-        clickable = a.bool("clickable", false);
-        alpha = a.dimension("alpha", 1f);
-        minW = (int) a.dimension("minWidth", 0);
-        minH = (int) a.dimension("minHeight", 0);
-        contentDescription = a.string("contentDescription");
-        String onClick = a.string("onClick");
+        clickable = a.getBoolean(12, clickable);
+        longClickable = a.getBoolean(13, false);
+        enabled = a.getBoolean(14, true);
+        focusable = a.getBoolean(15, focusable);
+        minW = a.getDimensionPixelSize(16, minW);
+        minH = a.getDimensionPixelSize(17, minH);
+        alpha = a.getFloat(18, 1f);
+        CharSequence cd = a.getText(19);
+        if (cd != null) contentDescription = cd;
+        if (a.hasValue(20)) setElevation(a.getDimension(20, 0));
+        if (a.hasValue(21)) { try { mForeground = a.getDrawable(21); if (mForeground != null) mForeground.setCallback(this); } catch (RuntimeException e) {} }
+        String onClick = a.getString(22);
         if (onClick != null) {
             final String method = onClick;
             mOnClickListener = new OnClickListener() {
                 public void onClick(View v) { VMBridge.invokeOnClick(getContext(), method, v); }
             };
         }
+        CharSequence tg = a.getText(23);
+        if (tg != null) tag = tg;
+        if (a.hasValue(24)) { android.content.res.ColorStateList t = a.getColorStateList(24); if (t != null) setBackgroundTintList(t); }
+        a.recycle();
     }
 
     public Context getContext() { return mContext; }
