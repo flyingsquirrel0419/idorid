@@ -38,6 +38,10 @@ impl Vm {
             _ => {}
         }
         let Some(code) = self.method_code(m) else {
+            if let MKind::Invalid(e) = &self.methods[m as usize].kind {
+                let msg = format!("{}: {e}", self.method_desc(m));
+                return self.throw_new("Ljava/lang/VerifyError;", &msg);
+            }
             let msg = format!("No implementation found for {}", self.method_desc(m));
             return self.throw_new("Ljava/lang/UnsatisfiedLinkError;", &msg);
         };
@@ -47,8 +51,8 @@ impl Vm {
         let fp = self.sp;
         let regs = code.regs as usize;
         let ins = code.ins as usize;
-        self.ensure_stack(fp + regs);
-        self.stack[fp..fp + regs].fill(0);
+        self.ensure_stack(fp + regs + 1);
+        self.stack[fp..fp + regs + 1].fill(0);
         let n = args.len().min(ins);
         self.stack[fp + regs - ins..fp + regs - ins + n].copy_from_slice(&args[..n]);
         self.sp = fp + regs;
@@ -149,25 +153,34 @@ impl Vm {
             let dex = code.dex;
             let mut pc = st.pc;
 
+            // SAFETY (all register macros): `verify` proved every register
+            // operand is < registers_size, and the frame was allocated with
+            // registers_size + 1 slots, so fp + reg (+1 for wide) is in bounds.
             macro_rules! r {
                 ($i:expr) => {
-                    self.stack[fp + ($i) as usize]
+                    unsafe { *self.stack.as_ptr().add(fp + ($i) as usize) }
                 };
+            }
+            macro_rules! set {
+                ($i:expr, $v:expr) => {{
+                    let v: u32 = $v;
+                    unsafe { *self.stack.as_mut_ptr().add(fp + ($i) as usize) = v };
+                }};
             }
             macro_rules! ri {
                 ($i:expr) => {
-                    self.stack[fp + ($i) as usize] as i32
+                    r!($i) as i32
                 };
             }
             macro_rules! rf {
                 ($i:expr) => {
-                    f32::from_bits(self.stack[fp + ($i) as usize])
+                    f32::from_bits(r!($i))
                 };
             }
             macro_rules! rw {
                 ($i:expr) => {{
-                    let i = fp + ($i) as usize;
-                    (self.stack[i] as u64) | ((self.stack[i + 1] as u64) << 32)
+                    let i = ($i) as usize;
+                    (r!(i) as u64) | ((r!(i + 1) as u64) << 32)
                 }};
             }
             macro_rules! rl {
@@ -183,9 +196,9 @@ impl Vm {
             macro_rules! setw {
                 ($i:expr, $v:expr) => {{
                     let v: u64 = $v;
-                    let i = fp + ($i) as usize;
-                    self.stack[i] = v as u32;
-                    self.stack[i + 1] = (v >> 32) as u32;
+                    let i = ($i) as usize;
+                    set!(i, v as u32);
+                    set!(i + 1, (v >> 32) as u32);
                 }};
             }
             macro_rules! w {
@@ -202,53 +215,53 @@ impl Vm {
             loop {
                 st.pc = pc;
                 let ins = insns[pc];
-                let op = ins & 0xff;
+                let op = ins as u8;
                 let aa = (ins >> 8) as usize;
                 let a = ((ins >> 8) & 0xf) as usize;
                 let b = (ins >> 12) as usize;
-                match op {
-                    0x00 => pc += 1,
-                    0x01 | 0x07 => {
-                        r!(a) = r!(b);
+                match CLASS[op as usize] {
+                    0 => pc += 1,
+                    1 => {
+                        set!(a, r!(b));
                         pc += 1;
                     }
-                    0x02 | 0x08 => {
-                        r!(aa) = r!(w!(1));
+                    2 => {
+                        set!(aa, r!(w!(1)));
                         pc += 2;
                     }
-                    0x03 | 0x09 => {
-                        r!(w!(1)) = r!(w!(2));
+                    3 => {
+                        set!(w!(1), r!(w!(2)));
                         pc += 3;
                     }
-                    0x04 => {
+                    4 => {
                         let v = rw!(b);
                         setw!(a, v);
                         pc += 1;
                     }
-                    0x05 => {
+                    5 => {
                         let v = rw!(w!(1));
                         setw!(aa, v);
                         pc += 2;
                     }
-                    0x06 => {
+                    6 => {
                         let v = rw!(w!(2));
                         setw!(w!(1), v);
                         pc += 3;
                     }
-                    0x0a | 0x0c => {
-                        r!(aa) = self.ret as u32;
+                    7 => {
+                        set!(aa, self.ret as u32);
                         pc += 1;
                     }
-                    0x0b => {
+                    8 => {
                         setw!(aa, self.ret);
                         pc += 1;
                     }
-                    0x0d => {
-                        r!(aa) = self.exception;
+                    9 => {
+                        set!(aa, self.exception);
                         self.exception = 0;
                         pc += 1;
                     }
-                    0x0e..=0x11 => {
+                    10 => {
                         let v = match op {
                             0x0e => 0,
                             0x10 => rw!(aa),
@@ -266,61 +279,61 @@ impl Vm {
                         st.pc = top.pc + 3;
                         continue 'frame;
                     }
-                    0x12 => {
-                        r!(a) = ((ins as i16) >> 12) as i32 as u32;
+                    11 => {
+                        set!(a, ((ins as i16) >> 12) as i32 as u32);
                         pc += 1;
                     }
-                    0x13 => {
-                        r!(aa) = insns[pc + 1] as i16 as i32 as u32;
+                    12 => {
+                        set!(aa, insns[pc + 1] as i16 as i32 as u32);
                         pc += 2;
                     }
-                    0x14 => {
-                        r!(aa) = w32!(1);
+                    13 => {
+                        set!(aa, w32!(1));
                         pc += 3;
                     }
-                    0x15 => {
-                        r!(aa) = w!(1) << 16;
+                    14 => {
+                        set!(aa, w!(1) << 16);
                         pc += 2;
                     }
-                    0x16 => {
+                    15 => {
                         setw!(aa, insns[pc + 1] as i16 as i64 as u64);
                         pc += 2;
                     }
-                    0x17 => {
+                    16 => {
                         setw!(aa, w32!(1) as i32 as i64 as u64);
                         pc += 3;
                     }
-                    0x18 => {
+                    17 => {
                         let v = (w32!(1) as u64) | ((w32!(3) as u64) << 32);
                         setw!(aa, v);
                         pc += 5;
                     }
-                    0x19 => {
+                    18 => {
                         setw!(aa, (w!(1) as u64) << 48);
                         pc += 2;
                     }
-                    0x1a => {
+                    19 => {
                         self.maybe_gc();
-                        r!(aa) = self.const_string(dex, w!(1))?;
+                        set!(aa, self.const_string(dex, w!(1))?);
                         pc += 2;
                     }
-                    0x1b => {
+                    20 => {
                         self.maybe_gc();
-                        r!(aa) = self.const_string(dex, w32!(1))?;
+                        set!(aa, self.const_string(dex, w32!(1))?);
                         pc += 3;
                     }
-                    0x1c => {
+                    21 => {
                         let c = self.resolve_type(dex, w!(1))?;
-                        r!(aa) = self.mirror(c);
+                        set!(aa, self.mirror(c));
                         pc += 2;
                     }
-                    0x1d | 0x1e => {
+                    22 => {
                         if r!(aa) == 0 {
                             return self.npe("monitor on null");
                         }
                         pc += 1;
                     }
-                    0x1f => {
+                    23 => {
                         let v = r!(aa);
                         if v != 0 {
                             let c = self.resolve_type(dex, w!(1))?;
@@ -336,7 +349,7 @@ impl Vm {
                         }
                         pc += 2;
                     }
-                    0x20 => {
+                    24 => {
                         let v = r!(b);
                         let res = if v == 0 {
                             false
@@ -344,19 +357,19 @@ impl Vm {
                             let c = self.resolve_type(dex, w!(1))?;
                             self.instance_of(v, c)
                         };
-                        r!(a) = res as u32;
+                        set!(a, res as u32);
                         pc += 2;
                     }
-                    0x21 => {
+                    25 => {
                         let v = r!(b);
                         let len = match self.heap.get(v).and_then(|o| o.data.array_len()) {
                             Some(l) => l,
                             None => return self.npe("array-length on null"),
                         };
-                        r!(a) = len as u32;
+                        set!(a, len as u32);
                         pc += 1;
                     }
-                    0x22 => {
+                    26 => {
                         let c = self.resolve_type(dex, w!(1))?;
                         if self.class(c).flags
                             & (idorid_dex::access::ABSTRACT | idorid_dex::access::INTERFACE)
@@ -367,10 +380,10 @@ impl Vm {
                         }
                         self.ensure_init(c)?;
                         self.maybe_gc();
-                        r!(aa) = self.alloc_instance(c);
+                        set!(aa, self.alloc_instance(c));
                         pc += 2;
                     }
-                    0x23 => {
+                    27 => {
                         let n = ri!(b);
                         if n < 0 {
                             return self.throw_new(
@@ -380,10 +393,10 @@ impl Vm {
                         }
                         let c = self.resolve_type(dex, w!(1))?;
                         self.maybe_gc();
-                        r!(a) = self.alloc_array(c, n as usize);
+                        set!(a, self.alloc_array(c, n as usize));
                         pc += 2;
                     }
-                    0x24 | 0x25 => {
+                    28 => {
                         let c = self.resolve_type(dex, w!(1))?;
                         let mut vals = [0u32; 256];
                         let count;
@@ -420,7 +433,7 @@ impl Vm {
                         self.ret = arr as u64;
                         pc += 3;
                     }
-                    0x26 => {
+                    29 => {
                         let off = (pc as i64 + w32!(1) as i32 as i64) as usize;
                         let width = insns[off + 1] as usize;
                         let size = (insns[off + 2] as usize) | ((insns[off + 3] as usize) << 16);
@@ -463,7 +476,7 @@ impl Vm {
                         }
                         pc += 3;
                     }
-                    0x27 => {
+                    30 => {
                         let v = r!(aa);
                         if v == 0 {
                             return self.npe("throw null");
@@ -471,10 +484,10 @@ impl Vm {
                         self.exception = v;
                         return Err(Throw);
                     }
-                    0x28 => pc = (pc as isize + (aa as u8 as i8) as isize) as usize,
-                    0x29 => pc = (pc as isize + insns[pc + 1] as i16 as isize) as usize,
-                    0x2a => pc = (pc as isize + w32!(1) as i32 as isize) as usize,
-                    0x2b => {
+                    31 => pc = (pc as isize + (aa as u8 as i8) as isize) as usize,
+                    32 => pc = (pc as isize + insns[pc + 1] as i16 as isize) as usize,
+                    33 => pc = (pc as isize + w32!(1) as i32 as isize) as usize,
+                    34 => {
                         let off = (pc as i64 + w32!(1) as i32 as i64) as usize;
                         let size = insns[off + 1] as usize;
                         let first =
@@ -488,7 +501,7 @@ impl Vm {
                             pc += 3;
                         }
                     }
-                    0x2c => {
+                    35 => {
                         let off = (pc as i64 + w32!(1) as i32 as i64) as usize;
                         let size = insns[off + 1] as usize;
                         let key = ri!(aa);
@@ -515,7 +528,7 @@ impl Vm {
                             None => pc += 3,
                         }
                     }
-                    0x2d..=0x31 => {
+                    36 => {
                         let bb = w!(1) & 0xff;
                         let cc = w!(1) >> 8;
                         let res: i32 = match op {
@@ -549,10 +562,10 @@ impl Vm {
                             }
                             _ => rl!(bb).cmp(&rl!(cc)) as i32,
                         };
-                        r!(aa) = res as u32;
+                        set!(aa, res as u32);
                         pc += 2;
                     }
-                    0x32..=0x37 => {
+                    37 => {
                         let (x, y) = (ri!(a), ri!(b));
                         let t = match op {
                             0x32 => x == y,
@@ -568,7 +581,7 @@ impl Vm {
                             pc + 2
                         };
                     }
-                    0x38..=0x3d => {
+                    38 => {
                         let x = ri!(aa);
                         let t = match op {
                             0x38 => x == 0,
@@ -584,7 +597,7 @@ impl Vm {
                             pc + 2
                         };
                     }
-                    0x44..=0x51 => {
+                    39 => {
                         let arr = r!(w!(1) & 0xff);
                         let idx = ri!(w!(1) >> 8);
                         let put = op >= 0x4b;
@@ -651,12 +664,12 @@ impl Vm {
                             if kind == 1 {
                                 setw!(aa, v);
                             } else {
-                                r!(aa) = v as u32;
+                                set!(aa, v as u32);
                             }
                         }
                         pc += 2;
                     }
-                    0x52..=0x5f => {
+                    40 => {
                         let put = op >= 0x59;
                         let kind = if put { op - 0x59 } else { op - 0x52 };
                         let fr = self.resolve_field(dex, w!(1), false)?;
@@ -691,11 +704,11 @@ impl Vm {
                             setw!(a, v);
                         } else {
                             let v = fs[s];
-                            r!(a) = v;
+                            set!(a, v);
                         }
                         pc += 2;
                     }
-                    0x60..=0x6d => {
+                    41 => {
                         let put = op >= 0x67;
                         let kind = if put { op - 0x67 } else { op - 0x60 };
                         let fr = self.resolve_field(dex, w!(1), true)?;
@@ -719,11 +732,11 @@ impl Vm {
                             let v = stc[s] as u64 | ((stc[s + 1] as u64) << 32);
                             setw!(aa, v);
                         } else {
-                            r!(aa) = self.class(fr.owner).statics[s];
+                            set!(aa, self.class(fr.owner).statics[s]);
                         }
                         pc += 2;
                     }
-                    0x6e..=0x72 | 0x74..=0x78 => {
+                    42 => {
                         let range = op >= 0x74;
                         let kind = match if range { op - 0x74 } else { op - 0x6e } {
                             0 => Kind::Virtual,
@@ -744,7 +757,10 @@ impl Vm {
                         };
                         let reg_of = |i: usize| if range { first + i } else { regs[i] };
                         let midx = w!(1);
-                        let mref = self.resolve_method_ref(dex, midx)?;
+                        let mref = match self.dexes[dex as usize].methods[midx as usize] {
+                            Some(m) => m,
+                            None => self.resolve_method_ref(dex, midx)?,
+                        };
                         let target = match kind {
                             Kind::Static => match mref.direct {
                                 Some(m) => {
@@ -828,6 +844,10 @@ impl Vm {
                             }
                             _ => {
                                 let Some(callee) = self.method_code(target) else {
+                                    if let MKind::Invalid(e) = &self.methods[target as usize].kind {
+                                        let msg = format!("{}: {e}", self.method_desc(target));
+                                        return self.throw_new("Ljava/lang/VerifyError;", &msg);
+                                    }
                                     let msg = format!(
                                         "No implementation found for {}",
                                         self.method_desc(target)
@@ -844,8 +864,8 @@ impl Vm {
                                 let nfp = self.sp;
                                 let regs_n = callee.regs as usize;
                                 let ins_n = callee.ins as usize;
-                                self.ensure_stack(nfp + regs_n);
-                                self.stack[nfp..nfp + regs_n].fill(0);
+                                self.ensure_stack(nfp + regs_n + 1);
+                                self.stack[nfp..nfp + regs_n + 1].fill(0);
                                 let dst = nfp + regs_n - ins_n;
                                 if range {
                                     self.stack.copy_within(
@@ -871,33 +891,33 @@ impl Vm {
                             }
                         }
                     }
-                    0x7b..=0x8f => {
+                    43 => {
                         match op {
-                            0x7b => r!(a) = ri!(b).wrapping_neg() as u32,
-                            0x7c => r!(a) = !r!(b),
+                            0x7b => set!(a, ri!(b).wrapping_neg() as u32),
+                            0x7c => set!(a, !r!(b)),
                             0x7d => setw!(a, rl!(b).wrapping_neg() as u64),
                             0x7e => setw!(a, !rw!(b)),
-                            0x7f => r!(a) = (-rf!(b)).to_bits(),
+                            0x7f => set!(a, (-rf!(b)).to_bits()),
                             0x80 => setw!(a, (-rd!(b)).to_bits()),
                             0x81 => setw!(a, ri!(b) as i64 as u64),
-                            0x82 => r!(a) = (ri!(b) as f32).to_bits(),
+                            0x82 => set!(a, (ri!(b) as f32).to_bits()),
                             0x83 => setw!(a, (ri!(b) as f64).to_bits()),
-                            0x84 => r!(a) = rw!(b) as u32,
-                            0x85 => r!(a) = (rl!(b) as f32).to_bits(),
+                            0x84 => set!(a, rw!(b) as u32),
+                            0x85 => set!(a, (rl!(b) as f32).to_bits()),
                             0x86 => setw!(a, (rl!(b) as f64).to_bits()),
-                            0x87 => r!(a) = rf!(b) as i32 as u32,
+                            0x87 => set!(a, rf!(b) as i32 as u32),
                             0x88 => setw!(a, rf!(b) as i64 as u64),
                             0x89 => setw!(a, (rf!(b) as f64).to_bits()),
-                            0x8a => r!(a) = rd!(b) as i32 as u32,
+                            0x8a => set!(a, rd!(b) as i32 as u32),
                             0x8b => setw!(a, rd!(b) as i64 as u64),
-                            0x8c => r!(a) = (rd!(b) as f32).to_bits(),
-                            0x8d => r!(a) = ri!(b) as i8 as i32 as u32,
-                            0x8e => r!(a) = r!(b) & 0xffff,
-                            _ => r!(a) = ri!(b) as i16 as i32 as u32,
+                            0x8c => set!(a, (rd!(b) as f32).to_bits()),
+                            0x8d => set!(a, ri!(b) as i8 as i32 as u32),
+                            0x8e => set!(a, r!(b) & 0xffff),
+                            _ => set!(a, ri!(b) as i16 as i32 as u32),
                         }
                         pc += 1;
                     }
-                    0x90..=0xcf => {
+                    44 => {
                         let two = op >= 0xb0;
                         let o = if two { op - 0xb0 } else { op - 0x90 };
                         let (d, x, y) = if two {
@@ -908,7 +928,7 @@ impl Vm {
                         match o {
                             0..=10 => {
                                 let v = self.int_op(o, ri!(x), ri!(y))?;
-                                r!(d) = v as u32;
+                                set!(d, v as u32);
                             }
                             11..=21 => {
                                 let k = o - 11;
@@ -926,7 +946,7 @@ impl Vm {
                                     3 => p / q,
                                     _ => p % q,
                                 };
-                                r!(d) = v.to_bits();
+                                set!(d, v.to_bits());
                             }
                             _ => {
                                 let (p, q) = (rd!(x), rd!(y));
@@ -942,7 +962,7 @@ impl Vm {
                         }
                         pc += if two { 1 } else { 2 };
                     }
-                    0xd0..=0xd7 => {
+                    45 => {
                         let lit = insns[pc + 1] as i16 as i32;
                         let o = op - 0xd0;
                         let v = if o == 1 {
@@ -950,10 +970,10 @@ impl Vm {
                         } else {
                             self.int_op(o, ri!(b), lit)?
                         };
-                        r!(a) = v as u32;
+                        set!(a, v as u32);
                         pc += 2;
                     }
-                    0xd8..=0xe2 => {
+                    46 => {
                         let src = (w!(1) & 0xff) as usize;
                         let lit = (insns[pc + 1] >> 8) as u8 as i8 as i32;
                         let o = op - 0xd8;
@@ -962,10 +982,10 @@ impl Vm {
                         } else {
                             self.int_op(o, ri!(src), lit)?
                         };
-                        r!(aa) = v as u32;
+                        set!(aa, v as u32);
                         pc += 2;
                     }
-                    0xfa..=0xff => {
+                    47 => {
                         let msg = format!("unsupported opcode {op:#x} (invoke-polymorphic/custom)");
                         return self.throw_new("Ljava/lang/UnsupportedOperationException;", &msg);
                     }
@@ -974,13 +994,12 @@ impl Vm {
                         return self.throw_new("Ljava/lang/VerifyError;", &msg);
                     }
                 }
-                self.instructions += 1;
             }
         }
     }
 
-    #[inline]
-    fn int_op(&mut self, o: u16, x: i32, y: i32) -> JResult<i32> {
+    #[inline(always)]
+    fn int_op(&mut self, o: u8, x: i32, y: i32) -> JResult<i32> {
         Ok(match o {
             0 => x.wrapping_add(y),
             1 => x.wrapping_sub(y),
@@ -1004,8 +1023,8 @@ impl Vm {
         })
     }
 
-    #[inline]
-    fn long_op(&mut self, o: u16, x: i64, y: i64) -> JResult<i64> {
+    #[inline(always)]
+    fn long_op(&mut self, o: u8, x: i64, y: i64) -> JResult<i64> {
         Ok(match o {
             0 => x.wrapping_add(y),
             1 => x.wrapping_sub(y),
@@ -1063,7 +1082,7 @@ impl Vm {
 
 /// Truncates a register value for sub-int field stores.
 #[inline]
-fn narrow(v: u32, kind: u16) -> u32 {
+fn narrow(v: u32, kind: u8) -> u32 {
     match kind {
         3 => v & 1,
         4 => v as i8 as i32 as u32,
@@ -1072,3 +1091,68 @@ fn narrow(v: u32, kind: u16) -> u32 {
         _ => v,
     }
 }
+
+/// Maps each opcode to a dense handler index so dispatch compiles to a single jump table.
+const fn class_of(op: u8) -> u8 {
+    match op {
+        0x00 => 0,
+        0x01 | 0x07 => 1,
+        0x02 | 0x08 => 2,
+        0x03 | 0x09 => 3,
+        0x04 => 4,
+        0x05 => 5,
+        0x06 => 6,
+        0x0a | 0x0c => 7,
+        0x0b => 8,
+        0x0d => 9,
+        0x0e..=0x11 => 10,
+        0x12 => 11,
+        0x13 => 12,
+        0x14 => 13,
+        0x15 => 14,
+        0x16 => 15,
+        0x17 => 16,
+        0x18 => 17,
+        0x19 => 18,
+        0x1a => 19,
+        0x1b => 20,
+        0x1c => 21,
+        0x1d | 0x1e => 22,
+        0x1f => 23,
+        0x20 => 24,
+        0x21 => 25,
+        0x22 => 26,
+        0x23 => 27,
+        0x24 | 0x25 => 28,
+        0x26 => 29,
+        0x27 => 30,
+        0x28 => 31,
+        0x29 => 32,
+        0x2a => 33,
+        0x2b => 34,
+        0x2c => 35,
+        0x2d..=0x31 => 36,
+        0x32..=0x37 => 37,
+        0x38..=0x3d => 38,
+        0x44..=0x51 => 39,
+        0x52..=0x5f => 40,
+        0x60..=0x6d => 41,
+        0x6e..=0x72 | 0x74..=0x78 => 42,
+        0x7b..=0x8f => 43,
+        0x90..=0xcf => 44,
+        0xd0..=0xd7 => 45,
+        0xd8..=0xe2 => 46,
+        0xfa..=0xff => 47,
+        _ => 255,
+    }
+}
+
+static CLASS: [u8; 256] = {
+    let mut t = [255u8; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = class_of(i as u8);
+        i += 1;
+    }
+    t
+};

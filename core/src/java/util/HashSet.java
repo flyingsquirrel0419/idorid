@@ -1,7 +1,8 @@
 package java.util;
 public class HashSet<E> extends AbstractSet<E> implements Cloneable, java.io.Serializable {
-    private final HashMap<E,Object> map;
+    final HashMap<E,Object> map;
     private static final Object PRESENT = new Object();
+    HashSet(int capacity,float loadFactor,boolean linked){map=new LinkedHashMap<E,Object>(capacity,loadFactor);}
     public HashSet(){map=new HashMap<E,Object>();}
     public HashSet(int capacity){map=new HashMap<E,Object>(capacity);}
     public HashSet(int capacity,float loadFactor){map=new HashMap<E,Object>(capacity,loadFactor);}

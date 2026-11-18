@@ -12,6 +12,7 @@ mod natives;
 mod natives_android;
 pub mod regex;
 pub mod text;
+mod verify;
 
 pub use heap::{JStr, Obj, ObjData, Ref};
 
@@ -110,6 +111,8 @@ pub enum MKind {
     Abstract,
     /// Declared native with no implementation, or code_off missing.
     Missing,
+    /// Failed structural verification.
+    Invalid(Rc<str>),
 }
 
 #[derive(Clone)]
@@ -155,7 +158,7 @@ pub struct DexFile {
     strings: Vec<Ref>,
     types: Vec<u32>,
     fields: Vec<Option<FieldRef>>,
-    methods: Vec<Option<MethodRef>>,
+    pub(crate) methods: Vec<Option<MethodRef>>,
     /// Monomorphic inline cache per method ref: (receiver class + 1, target).
     ic: Vec<(u32, MethodIdx)>,
 }
@@ -592,10 +595,15 @@ impl Vm {
                 handlers: hs.into_boxed_slice(),
             });
         }
+        let insns = ci.insns();
+        if let Err(e) = verify::verify(&insns, ci.registers_size) {
+            self.methods[m as usize].kind = MKind::Invalid(Rc::from(e));
+            return None;
+        }
         let code = Rc::new(Code {
             regs: ci.registers_size,
             ins: ci.ins_size,
-            insns: ci.insns().into_boxed_slice(),
+            insns: insns.into_boxed_slice(),
             tries: tries.into_boxed_slice(),
             dex: d,
             debug_info_off: ci.debug_info_off,
@@ -1238,7 +1246,7 @@ impl Vm {
 
     /// Runs `public static void main(String[])` of a class.
     pub fn run_main(&mut self, class: &str) -> Result<(), String> {
-        let desc = if class.starts_with('L') {
+        let desc = if class.starts_with('L') && class.ends_with(';') {
             class.to_string()
         } else {
             java_to_descriptor(class)

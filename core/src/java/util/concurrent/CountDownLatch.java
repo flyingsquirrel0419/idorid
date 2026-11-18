@@ -1,0 +1,2 @@
+package java.util.concurrent;
+public class CountDownLatch {private long count;public CountDownLatch(int n){if(n<0)throw new IllegalArgumentException();count=n;} public void countDown(){if(count>0)count--;} public long getCount(){return count;} public void await() throws InterruptedException {java.lang.VMThread.runPending();} public boolean await(long n,TimeUnit u)throws InterruptedException {if(u==null)throw new NullPointerException();java.lang.VMThread.runPending();return count==0;} public String toString(){return super.toString()+"[Count = "+count+"]";}}

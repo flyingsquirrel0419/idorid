@@ -18,3 +18,8 @@ strip = true
 [profile.release-ffi]
 inherits = "release"
 panic = "unwind"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
