@@ -1,0 +1,6 @@
+package android.view;
+/** idorid: package-private view lookups for the host bridge. */
+public final class VMViews {
+    private VMViews() {}
+    public static View byUid(View root, int uid) { return root.findByUid(uid); }
+}

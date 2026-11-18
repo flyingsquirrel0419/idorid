@@ -1,0 +1,2 @@
+package java.util.function;
+public interface IntPredicate { boolean test(int value); default IntPredicate and(final IntPredicate p){java.util.Objects.requireNonNull(p);return new IntPredicate(){public boolean test(int v){return IntPredicate.this.test(v)&&p.test(v);}};} default IntPredicate or(final IntPredicate p){java.util.Objects.requireNonNull(p);return new IntPredicate(){public boolean test(int v){return IntPredicate.this.test(v)||p.test(v);}};} default IntPredicate negate(){return new IntPredicate(){public boolean test(int v){return !IntPredicate.this.test(v);}};} }

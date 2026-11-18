@@ -1,0 +1,5 @@
+package android.text.method;
+public class HideReturnsTransformationMethod implements TransformationMethod {
+    private static final HideReturnsTransformationMethod I = new HideReturnsTransformationMethod();
+    public static HideReturnsTransformationMethod getInstance() { return I; }
+}

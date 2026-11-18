@@ -1,0 +1,2 @@
+package java.util.function;
+public interface Function<T,R> { R apply(T t); default <V> Function<V,R> compose(final Function<? super V,? extends T> b){java.util.Objects.requireNonNull(b);return new Function<V,R>(){public R apply(V v){return Function.this.apply(b.apply(v));}};} default <V> Function<T,V> andThen(final Function<? super R,? extends V> a){java.util.Objects.requireNonNull(a);return new Function<T,V>(){public V apply(T t){return a.apply(Function.this.apply(t));}};} static <T> Function<T,T> identity(){return new Function<T,T>(){public T apply(T t){return t;}};} }

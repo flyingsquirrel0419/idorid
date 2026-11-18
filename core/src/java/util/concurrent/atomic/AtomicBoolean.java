@@ -1,0 +1,3 @@
+package java.util.concurrent.atomic;
+public class AtomicBoolean implements java.io.Serializable {
+ private volatile boolean value; public AtomicBoolean(){} public AtomicBoolean(boolean initialValue){value=initialValue;} public final boolean get(){return value;} public final void set(boolean v){value=v;} public final void lazySet(boolean v){set(v);} public final synchronized boolean getAndSet(boolean v){boolean old=value;value=v;return old;} public final synchronized boolean compareAndSet(boolean expect,boolean update){if(value!=expect)return false;value=update;return true;} public final boolean weakCompareAndSet(boolean expect,boolean update){return compareAndSet(expect,update);} public String toString(){return String.valueOf(value);} }

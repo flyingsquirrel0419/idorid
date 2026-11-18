@@ -3,6 +3,7 @@ name = "idorid-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "idorid"
@@ -12,3 +13,5 @@ path = "src/main.rs"
 idorid-dex = { path = "../dex" }
 idorid-vm = { path = "../vm" }
 idorid-apk = { path = "../apk" }
+idorid-ffi = { path = "../ffi" }
+serde_json = "1"

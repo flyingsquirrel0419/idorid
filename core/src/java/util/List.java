@@ -1,0 +1,3 @@
+package java.util;
+import java.util.function.UnaryOperator;
+public interface List<E> extends Collection<E> { boolean addAll(int i,Collection<? extends E> c); E get(int i); E set(int i,E e); void add(int i,E e); E remove(int i); int indexOf(Object o); int lastIndexOf(Object o); ListIterator<E> listIterator(); ListIterator<E> listIterator(int i); List<E> subList(int a,int b); default void replaceAll(UnaryOperator<E> op){ListIterator<E> i=listIterator();while(i.hasNext())i.set(op.apply(i.next()));} default void sort(Comparator<? super E> c){ Object[] a=toArray(); Arrays.sort(a,(Comparator)c); ListIterator<E> i=listIterator(); for(Object x:a){i.next();i.set((E)x);} } }

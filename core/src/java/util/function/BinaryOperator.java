@@ -1,0 +1,2 @@
+package java.util.function;
+public interface BinaryOperator<T> extends BiFunction<T,T,T> { static <T> BinaryOperator<T> minBy(final java.util.Comparator<? super T> c){java.util.Objects.requireNonNull(c);return new BinaryOperator<T>(){public T apply(T a,T b){return c.compare(a,b)<=0?a:b;}};} static <T> BinaryOperator<T> maxBy(final java.util.Comparator<? super T> c){java.util.Objects.requireNonNull(c);return new BinaryOperator<T>(){public T apply(T a,T b){return c.compare(a,b)>=0?a:b;}};} }
