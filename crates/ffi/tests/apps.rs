@@ -185,7 +185,8 @@ fn androidx_template_app() {
     assert_eq!(button["frame"][1].as_i64().unwrap(), hy + hh);
     // MaterialButton paints its shape background through the canvas
     assert!(button["draw"].as_array().is_some_and(|d| !d.is_empty()));
-    ui(&app.click(id(button)));
-    let v = ui(&app.click(id(by_text(&ui(&app.ui()), "Tap me"))));
+    let button_id = id(button);
+    ui(&app.click(button_id));
+    let v = ui(&app.click(button_id));
     by_text(&v, "Tapped 2 times");
 }
