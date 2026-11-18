@@ -26,6 +26,9 @@ char *idorid_vm_touch(IdoridVm *vm, int32_t view_id, int32_t action, float x, fl
 // Touch in window (content area) coordinates, dispatched through the view tree
 // like Android (onInterceptTouchEvent, touch targets). action as above.
 char *idorid_vm_touch_window(IdoridVm *vm, int32_t action, float x, float y);
+// A native scroll view (ScrollView node) scrolled to (x, y): keeps Java's scroll
+// offset in sync for hit testing. Returns "{}" (no UI change).
+char *idorid_vm_scroll(IdoridVm *vm, int32_t view_id, int32_t x, int32_t y);
 char *idorid_vm_click(IdoridVm *vm, int32_t view_id);
 char *idorid_vm_set_text(IdoridVm *vm, int32_t view_id, const char *utf8);
 char *idorid_vm_back(IdoridVm *vm);

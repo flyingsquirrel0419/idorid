@@ -496,6 +496,13 @@ impl App {
             &[CallArg::Int(action), CallArg::Float(x), CallArg::Float(y)],
         )
     }
+    /// Native scroll view moved: sync the Java view's scroll offset.
+    pub fn scroll(&mut self, id: i32, x: i32, y: i32) -> String {
+        self.call(
+            "scroll(III)Ljava/lang/String;",
+            &[CallArg::Int(id), CallArg::Int(x), CallArg::Int(y)],
+        )
+    }
     /// Down + up at a window point (a tap).
     pub fn tap(&mut self, x: f32, y: f32) -> String {
         self.touch_window(0, x, y);
@@ -681,6 +688,7 @@ vm_fn!(idorid_vm_set_window_size(w: i32, h: i32) => |app| app.set_window_size(w,
 vm_fn!(idorid_vm_set_size(view_id: i32, w: i32, h: i32) => |app| app.set_size(view_id, w, h));
 vm_fn!(idorid_vm_touch(view_id: i32, action: i32, x: f32, y: f32) => |app| app.touch(view_id, action, x, y));
 vm_fn!(idorid_vm_touch_window(action: i32, x: f32, y: f32) => |app| app.touch_window(action, x, y));
+vm_fn!(idorid_vm_scroll(view_id: i32, x: i32, y: i32) => |app| app.scroll(view_id, x, y));
 vm_fn!(idorid_vm_click(view_id: i32) => |app| app.click(view_id));
 vm_fn!(idorid_vm_long_click(view_id: i32) => |app| app.long_click(view_id));
 vm_fn!(idorid_vm_editor_action(view_id: i32) => |app| app.editor_action(view_id));

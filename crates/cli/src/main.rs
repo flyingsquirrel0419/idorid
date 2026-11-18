@@ -274,6 +274,22 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
                     p.next().unwrap_or("").parse().unwrap_or(0.0),
                 )
             }
+            "drag" => {
+                // drag x1 y1 x2 y2: down, 10 moves, up (window coordinates)
+                let v: Vec<f32> = std::iter::once(a1)
+                    .chain(rest.split_whitespace())
+                    .filter_map(|x| x.parse().ok())
+                    .collect();
+                if v.len() < 4 {
+                    continue;
+                }
+                app.touch_window(0, v[0], v[1]);
+                for i in 1..=10 {
+                    let t = i as f32 / 10.0;
+                    app.touch_window(2, v[0] + (v[2] - v[0]) * t, v[1] + (v[3] - v[1]) * t);
+                }
+                app.touch_window(1, v[2], v[3])
+            }
             "tap" => app.tap(
                 a1.parse().unwrap_or(0.0),
                 rest.split_whitespace()

@@ -134,6 +134,12 @@ public final class ActivityThread {
         return settle();
     }
 
+    /** The host scrolled a native scroll view: keep Java's scroll offset in sync (no UI dump). */
+    public static String scroll(int uid, int x, int y) {
+        try { View v = find(uid); if (v != null) v.scrollTo(x, y); } catch (Throwable e) { fail(e); }
+        return "{}";
+    }
+
     public static String longClick(int uid) {
         try { View v = find(uid); if (v != null) v.performLongClick(); } catch (Throwable t) { fail(t); }
         return settle();
