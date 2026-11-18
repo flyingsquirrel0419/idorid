@@ -274,6 +274,7 @@ public class View implements Drawable.Callback {
     public void draw(android.graphics.Canvas c) {
         if (mBackground != null) { mBackground.setBounds(0, 0, getWidth(), getHeight()); mBackground.draw(c); }
         onDraw(c);
+        dispatchDraw(c);
         onDrawForeground(c);
     }
     public void onDrawForeground(android.graphics.Canvas c) {

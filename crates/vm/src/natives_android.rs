@@ -49,7 +49,19 @@ pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
     });
     m.insert(
         "Landroid/view/VMViews;->overridesOnDraw(Landroid/view/View;)Z",
-        |vm, a| overrides_view(vm, a[0], "onDraw(Landroid/graphics/Canvas;)V"),
+        |vm, a| {
+            // Custom drawing: onDraw, draw or dispatchDraw overridden below View/ViewGroup.
+            for sig in [
+                "onDraw(Landroid/graphics/Canvas;)V",
+                "draw(Landroid/graphics/Canvas;)V",
+                "dispatchDraw(Landroid/graphics/Canvas;)V",
+            ] {
+                if overrides_view(vm, a[0], sig)? != 0 {
+                    return Ok(1);
+                }
+            }
+            Ok(0)
+        },
     );
     m.insert(
         "Landroid/view/VMViews;->overridesOnTouch(Landroid/view/View;)Z",
@@ -248,7 +260,12 @@ fn overrides_view(vm: &mut Vm, obj: u32, sig: &str) -> JResult<u64> {
     let id = vm.sig_id(sig);
     Ok(vm
         .find_virtual(cls, id)
-        .map(|m| vm.class(vm.methods[m as usize].class).name.as_ref() != "Landroid/view/View;")
+        .map(|m| {
+            !matches!(
+                vm.class(vm.methods[m as usize].class).name.as_ref(),
+                "Landroid/view/View;" | "Landroid/view/ViewGroup;"
+            )
+        })
         .unwrap_or(false) as u64)
 }
 

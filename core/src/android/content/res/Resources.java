@@ -169,12 +169,7 @@ public class Resources {
         return v;
     }
     /** idorid: transparent stand-in for framework drawables we do not bundle. */
-    static Drawable placeholder() {
-        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-        d.setColor(0);
-        d.setSize(24, 24);
-        return d;
-    }
+    static Drawable placeholder() { return new VMPlaceholderDrawable(); }
 
     void fillValue(String v, TypedValue out, boolean resolveRefs) {
         char k = VMValue.kind(v);
