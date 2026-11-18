@@ -38,6 +38,9 @@ public class View {
     private CharSequence contentDescription;
     protected OnClickListener mOnClickListener;
     private OnLongClickListener longClick;
+    private OnTouchListener touchListener;
+    private int mWidth, mHeight;
+    private static boolean dirty;
     private OnFocusChangeListener focusListener;
 
     public View(Context context) { mContext = context; }
@@ -104,7 +107,9 @@ public class View {
     public void setOnClickListener(OnClickListener l) { if (l != null) clickable = true; mOnClickListener = l; }
     public boolean hasOnClickListeners() { return mOnClickListener != null; }
     public void setOnLongClickListener(OnLongClickListener l) { longClick = l; }
-    public void setOnTouchListener(OnTouchListener l) {}
+    public void setOnTouchListener(OnTouchListener l) { touchListener = l; }
+    public boolean dispatchTouchEvent(MotionEvent e) { return enabled && ((touchListener != null && touchListener.onTouch(this,e)) || onTouchEvent(e)); }
+    public boolean onTouchEvent(MotionEvent e) { if (!enabled || !clickable) return false; if (e.getActionMasked() == MotionEvent.ACTION_UP) performClick(); return true; }
     public void setOnFocusChangeListener(OnFocusChangeListener l) { focusListener = l; }
     public OnFocusChangeListener getOnFocusChangeListener() { return focusListener; }
     public void setOnKeyListener(OnKeyListener l) {}
@@ -171,14 +176,23 @@ public class View {
     public boolean postDelayed(Runnable r, long ms) { return HANDLER.postDelayed(r, ms); }
     public boolean removeCallbacks(Runnable r) { HANDLER.removeCallbacks(r); return true; }
     public Handler getHandler() { return HANDLER; }
-    public void invalidate() {}
-    public void postInvalidate() {}
+    public void invalidate() { if (VMViews.overridesOnDraw(this)) dirty = true; }
+    public void postInvalidate() { invalidate(); }
+    public void postInvalidateOnAnimation() { invalidate(); }
+    public void postOnAnimation(Runnable r) { postDelayed(r,16); }
+    public static boolean idoridTakeDirty() { boolean d=dirty; dirty=false; return d; }
+    protected void onSizeChanged(int w,int h,int oldw,int oldh) {}
+    protected void onDraw(android.graphics.Canvas c) {}
+    public void draw(android.graphics.Canvas c) { onDraw(c); }
+    public void idoridSetSize(int w,int h) { if(w != mWidth || h != mHeight) { int ow=mWidth, oh=mHeight; mWidth=w; mHeight=h; onSizeChanged(w,h,ow,oh); } }
     public void requestLayout() {}
     public void forceLayout() {}
-    public int getWidth() { return 0; }
-    public int getHeight() { return 0; }
-    public int getMeasuredWidth() { return 0; }
-    public int getMeasuredHeight() { return 0; }
+    public int getWidth() { return mWidth; }
+    public int getHeight() { return mHeight; }
+    public int getMeasuredWidth() { return mWidth; }
+    public int getMeasuredHeight() { return mHeight; }
+    public int getRight() { return mWidth; }
+    public int getBottom() { return mHeight; }
     public int getLeft() { return 0; }
     public int getTop() { return 0; }
     public float getX() { return 0; }
@@ -242,6 +256,8 @@ public class View {
                 if (g != null) { Json.key(sb, "layoutGravity"); Json.str(sb, g); }
             }
         }
+        if (touchListener != null || VMViews.overridesOnTouch(this)) { Json.key(sb, "touch"); sb.append("true"); }
+        if (VMViews.overridesOnDraw(this)) { Json.key(sb, "draw"); android.graphics.Canvas c = new android.graphics.Canvas(mWidth,mHeight); if (visibility == VISIBLE && mWidth > 0 && mHeight > 0) draw(c); sb.append(c.idoridOps()); }
         idoridProps(sb);
         sb.append('}');
     }

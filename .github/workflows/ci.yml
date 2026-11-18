@@ -16,6 +16,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install kotlinc
+        run: |
+          curl -sSL -o /tmp/kc.zip https://github.com/JetBrains/kotlin/releases/download/v2.4.21/kotlin-compiler-2.4.21.zip
+          mkdir -p ~/tools && unzip -q /tmp/kc.zip -d ~/tools
       - run: tools/build-core.sh
       - run: git diff --exit-code crates/vm/core.dex || echo core.dex changed
       - run: cargo fmt --all --check

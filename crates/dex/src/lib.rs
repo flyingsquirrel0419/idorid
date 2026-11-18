@@ -332,6 +332,46 @@ impl<'a> Dex<'a> {
         })
     }
 
+    /// Finds a section in the map_list by item type (e.g. 0x0007 call sites).
+    fn map_section(&self, ty: u16) -> Option<(u32, u32)> {
+        let map = rd_u32(self.data, 52).ok()? as usize;
+        let n = rd_u32(self.data, map).ok()? as usize;
+        for i in 0..n.min(64) {
+            let o = map + 4 + i * 12;
+            if rd_u16(self.data, o).ok()? == ty {
+                return Some((
+                    rd_u32(self.data, o + 4).ok()?,
+                    rd_u32(self.data, o + 8).ok()?,
+                ));
+            }
+        }
+        None
+    }
+
+    /// Decoded `call_site_item` (bootstrap handle, name, method type, extra args).
+    pub fn call_site(&self, idx: u32) -> Result<Vec<EncodedValue>> {
+        let (size, off) = self
+            .map_section(0x0007)
+            .ok_or(DexError::Malformed("no call sites"))?;
+        if idx >= size {
+            return Err(DexError::OutOfBounds("call site idx", idx as usize));
+        }
+        let item = rd_u32(self.data, off as usize + idx as usize * 4)?;
+        self.encoded_array(item)
+    }
+
+    /// `method_handle_item`: (handle type, field or method id).
+    pub fn method_handle(&self, idx: u32) -> Result<(u16, u16)> {
+        let (size, off) = self
+            .map_section(0x0008)
+            .ok_or(DexError::Malformed("no method handles"))?;
+        if idx >= size {
+            return Err(DexError::OutOfBounds("method handle idx", idx as usize));
+        }
+        let o = off as usize + idx as usize * 8;
+        Ok((rd_u16(self.data, o)?, rd_u16(self.data, o + 4)?))
+    }
+
     pub fn class_def(&self, idx: u32) -> Result<ClassDef> {
         self.check(idx, self.class_defs, "class_def idx")?;
         let o = self.class_defs.off as usize + idx as usize * 32;

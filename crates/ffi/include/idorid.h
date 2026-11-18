@@ -14,6 +14,8 @@ IdoridVm *idorid_vm_new(const uint8_t *apk, size_t len, char **err);
 // Data goes to <dir>/<package>/. Returns "{}".
 char *idorid_vm_set_data_dir(IdoridVm *vm, const char *dir);
 char *idorid_vm_launch(IdoridVm *vm);
+char *idorid_vm_set_size(IdoridVm *vm, int32_t view_id, int32_t w, int32_t h);
+char *idorid_vm_touch(IdoridVm *vm, int32_t view_id, int32_t action, float x, float y);
 char *idorid_vm_click(IdoridVm *vm, int32_t view_id);
 char *idorid_vm_set_text(IdoridVm *vm, int32_t view_id, const char *utf8);
 char *idorid_vm_back(IdoridVm *vm);

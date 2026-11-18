@@ -118,6 +118,10 @@ public final class ActivityThread {
         return settle();
     }
 
+    public static String setSize(int uid,int w,int h) { try { View v=find(uid); if(v!=null) v.idoridSetSize(w,h); } catch(Throwable t) { fail(t); } return settle(); }
+    private static long touchDown;
+    public static String touch(int uid,int action,float x,float y) { try { View v=find(uid); if(v!=null) { long now=android.os.SystemClock.uptimeMillis(); if(action==0) touchDown=now; v.dispatchTouchEvent(android.view.MotionEvent.obtain(touchDown,now,action,x,y,0)); } } catch(Throwable t) { fail(t); } return settle(); }
+
     public static String longClick(int uid) {
         try { View v = find(uid); if (v != null) v.performLongClick(); } catch (Throwable t) { fail(t); }
         return settle();
@@ -181,7 +185,7 @@ public final class ActivityThread {
         sb.append(",\"error\":");
         Json.str(sb, error);
         error = null;
-        sb.append(",\"next\":").append(nextMs);
+        int nextPos = sb.length();
         sb.append(",\"depth\":").append(stack.size());
         if (t != null) { sb.append(",\"root\":"); t.mContent.idoridJson(sb); }
         if (!toasts.isEmpty()) {
@@ -191,6 +195,9 @@ public final class ActivityThread {
             toasts.clear();
         }
         if (!dialogs.isEmpty()) { sb.append(",\"dialog\":"); dialogs.get(dialogs.size() - 1).idoridJson(sb); }
+        boolean dirty = View.idoridTakeDirty();
+        if (dirty && (nextMs < 0 || nextMs > 16)) nextMs = 16;
+        sb.insert(nextPos, ",\"next\":" + nextMs);
         sb.append('}');
         return sb.toString();
     }

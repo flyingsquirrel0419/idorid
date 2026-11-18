@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF101418</color>
+    <color name="display">#FFFFFFFF</color>
+    <color name="muted">#FF8A939C</color>
+    <color name="key">#FF2A3038</color>
+    <color name="op">#FFFF9F0A</color>
+    <color name="fn">#FF5A636E</color>
+</resources>

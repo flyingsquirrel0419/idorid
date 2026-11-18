@@ -12,8 +12,22 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/compiled" "$tmp/gen" "$tmp/classes" "$tmp/dex" "$(dirname "$out")"
 "$build/aapt2" compile --dir "$app/res" -o "$tmp/compiled"
 "$build/aapt2" link -I "$jar" --manifest "$app/AndroidManifest.xml" --java "$tmp/gen" -o "$tmp/app.apk" "$tmp/compiled"/*.flat
-find "$app/src" "$tmp/gen" -name '*.java' -print0 | xargs -0 javac --release 8 -nowarn -classpath "$jar" -d "$tmp/classes"
-find "$tmp/classes" -name '*.class' -print0 | xargs -0 "$build/d8" --lib "$jar" --min-api 21 --output "$tmp/dex"
+extra=()
+if [ -n "$(find "$app/src" -name '*.kt' -print -quit)" ]; then
+  # Kotlin sources: compile with kotlinc (Java sources visible for mixed projects)
+  # and dex the Kotlin stdlib into the app, like a Gradle debug build does.
+  kotlinc="${KOTLINC:-$(command -v kotlinc || echo "$HOME/tools/kotlinc/bin/kotlinc")}"
+  stdlib="$(dirname "$kotlinc")/../lib/kotlin-stdlib.jar"
+  "$kotlinc" -jvm-target 1.8 -nowarn -classpath "$jar" -d "$tmp/classes" \
+    $(find "$app/src" "$tmp/gen" -name '*.kt' -o -name '*.java') 2>&1 | grep -v '^warning' || true
+  extra=("$stdlib")
+fi
+if [ -n "$(find "$app/src" -name '*.java' -print -quit)" ]; then
+  find "$app/src" "$tmp/gen" -name '*.java' -print0 | xargs -0 javac --release 8 -nowarn -classpath "$jar:$tmp/classes" -d "$tmp/classes"
+else
+  find "$tmp/gen" -name '*.java' -print0 | xargs -0 javac --release 8 -nowarn -classpath "$jar" -d "$tmp/classes"
+fi
+find "$tmp/classes" -name '*.class' -print0 | xargs -0 "$build/d8" --lib "$jar" --min-api 21 --output "$tmp/dex" "${extra[@]}" > /dev/null
 cp "$tmp/app.apk" "$out"
 (cd "$tmp/dex" && zip -q "$out" classes*.dex)
 echo "built $out ($(wc -c < "$out") bytes)"

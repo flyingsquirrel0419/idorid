@@ -1,4 +1,5 @@
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private let url: URL
@@ -10,6 +11,11 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private var opened = false
     private var previousDelegate: UINavigationControllerDelegate?
     private var tickTimer: Timer?
+    private var tickInFlight = false
+    private var moveInFlight = false
+    private var activeTouches = 0
+    private var canvases: [Int32: CanvasView] = [:]
+    private var usedCanvases = Set<Int32>()
     private var presentedDialog: String?
     private let toastLabel = UILabel()
     private var imageCache: [Int32: UIImage] = [:]
@@ -74,8 +80,9 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             navigationController?.interactivePopGestureRecognizer?.isEnabled = true
         }
     }
-    private func send(_ action: @escaping (OpaquePointer) -> UnsafeMutablePointer<CChar>?) {
+    private func send(completion: (() -> Void)? = nil, _ action: @escaping (OpaquePointer) -> UnsafeMutablePointer<CChar>?) {
         worker.perform(action) { [weak self] json in
+            completion?()
             guard let self = self, !self.closing else { return }
             guard let json = json, let data = json.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 self.showError("The VM returned invalid UI JSON."); return
@@ -108,10 +115,33 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
     private func showError(_ message: String?) { banner.text = message; banner.isHidden = message == nil || message?.isEmpty == true }
     private func scheduleTick(_ next: Any?) {
         tickTimer?.invalidate()
-        guard let ms = (next as? NSNumber)?.doubleValue, ms >= 0 else { return }
-        tickTimer = Timer.scheduledTimer(withTimeInterval: max(0.001, ms / 1000), repeats: false) { [weak self] _ in
-            self?.send { idorid_vm_tick($0) }
+        guard let ms = (next as? NSNumber)?.doubleValue, ms.isFinite, ms >= 0 else { return }
+        let timer = Timer(timeInterval: max(0.001, ms / 1000), repeats: false) { [weak self] _ in
+            guard let self = self, !self.closing else { return }
+            if self.tickInFlight { self.scheduleTick(NSNumber(value: 16)); return }
+            self.tickInFlight = true
+            self.send(completion: { [weak self] in self?.tickInFlight = false }) { idorid_vm_tick($0) }
         }
+        tickTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    private func forwardTouch(_ id: Int32, _ action: Int32, _ point: CGPoint) {
+        guard point.x.isFinite, point.y.isFinite else { return }
+        if action == 0 { activeTouches += 1 }
+        if action == 2 {
+            guard !moveInFlight else { return }
+            moveInFlight = true
+        }
+        let x = Float(point.x), y = Float(point.y)
+        send(completion: { [weak self] in
+            guard let self = self else { return }
+            if action == 2 { self.moveInFlight = false }
+            if action == 1 || action == 3 { self.activeTouches = max(0, self.activeTouches - 1) }
+        }) { idorid_vm_touch($0, id, action, x, y) }
+    }
+    private func updateCanvasOperations(_ node: [String: Any]) {
+        if let id = (node["id"] as? NSNumber)?.int32Value, let canvas = canvases[id], let ops = node["draw"] as? [Any] { canvas.updateOperations(ops) }
+        for child in node["children"] as? [[String: Any]] ?? [] { updateCanvasOperations(child) }
     }
     private func showToasts(_ toasts: [String]) {
         guard let text = toasts.last else { return }
@@ -153,7 +183,10 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             guard let self = self, !self.closing else { return }
             self.pendingImages.remove(id)
             if let image = images[id] { self.imageCache[id] = image } else { self.missingImages.insert(id) }
-            if images[id] != nil, let ui = self.lastUI { self.render(ui) }
+            if images[id] != nil {
+                self.canvases.values.forEach { $0.setNeedsDisplay() }
+                if self.activeTouches == 0, let ui = self.lastUI { self.render(ui) }
+            }
         }
     }
     private func render(_ object: [String: Any]) {
@@ -164,16 +197,25 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         showDialog(object["dialog"] as? [String: Any])
         if let title = object["title"] as? String { self.title = title }
         showError(object["error"] as? String)
+        if activeTouches > 0 {
+            if let root = object["root"] as? [String: Any] { updateCanvasOperations(root) }
+            return
+        }
+        usedCanvases.removeAll()
         let focused = fields.first { $0.value.isFirstResponder }?.key
         let selection: (Int, Int)? = focused.flatMap { id in
             guard let field = fields[id], let range = field.selectedTextRange else { return nil }
             return (field.offset(from: field.beginningOfDocument, to: range.start), field.offset(from: field.beginningOfDocument, to: range.end))
         }
         fields.removeAll()
-        content.subviews.forEach { $0.removeFromSuperview() }
         if let root = object["root"] as? [String: Any] {
             let child = build(root)
-            content.addSubview(child)
+            if child.superview !== content {
+                content.subviews.forEach { $0.removeFromSuperview() }
+                content.addSubview(child)
+            } else {
+                NSLayoutConstraint.deactivate(content.constraints.filter { ($0.firstItem as? UIView) === child || ($0.secondItem as? UIView) === child })
+            }
             child.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([child.leadingAnchor.constraint(equalTo: content.leadingAnchor), child.topAnchor.constraint(equalTo: content.topAnchor)])
             var rootLayout = root
@@ -182,6 +224,8 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             pinDimension(child, node: rootLayout, horizontal: true, parent: content)
             pinDimension(child, node: rootLayout, horizontal: false, parent: content)
         }
+        else { content.subviews.forEach { $0.removeFromSuperview() } }
+        canvases = canvases.filter { usedCanvases.contains($0.key) }
         if let id = focused, let field = fields[id] {
             field.becomeFirstResponder()
             if let selection = selection, let start = field.position(from: field.beginningOfDocument, offset: selection.0), let end = field.position(from: field.beginningOfDocument, offset: selection.1) { field.selectedTextRange = field.textRange(from: start, to: end) }
@@ -206,8 +250,10 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
         let type = node["type"] as? String ?? "View"
         let children = node["children"] as? [[String: Any]] ?? []
         let padding = insets(node)
+        let hasDraw = node["draw"] is [Any]
+        let isGroup = ["LinearLayout", "ScrollView", "FrameLayout", "HorizontalScrollView"].contains(type)
         let result: UIView
-        switch type {
+        if hasDraw && !isGroup { result = UIView() } else { switch type {
         case "LinearLayout", "ScrollView":
             let stack = UIStackView()
             stack.axis = type == "ScrollView" || (node["orientation"] as? String != "horizontal") ? .vertical : .horizontal
@@ -380,9 +426,36 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             if let tint = color(node["tint"]) { imageView.image = imageView.image?.withRenderingMode(.alwaysTemplate); imageView.tintColor = tint }
             result = imageView
         default: result = UIView()
-        }
+        } }
         var outer = result
-        if type != "LinearLayout" && type != "ScrollView" && type != "FrameLayout" && padding != .zero {
+        if hasDraw {
+            let id = (node["id"] as? NSNumber)?.int32Value
+            let canvas = id.flatMap { canvases[$0] } ?? CanvasView(frame: .zero)
+            if let id = id {
+                canvases[id] = canvas
+                usedCanvases.insert(id)
+                canvas.onSize = { [weak self] w, h in self?.send { idorid_vm_set_size($0, id, w, h) } }
+            }
+            canvas.imageForID = { [weak self] id in
+                guard let self = self else { return nil }
+                if let image = self.imageCache[id] { return image }
+                if !self.missingImages.contains(id) { self.requestImage(id) }
+                return nil
+            }
+            canvas.minimumSize = CGSize(width: max(0, (node["minWidth"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0), height: max(0, (node["minHeight"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0))
+            canvas.updateOperations(node["draw"] as? [Any] ?? [])
+            canvas.subviews.forEach { $0.removeFromSuperview() }
+            // Remove size constraints installed by a previous parent before reusing this view.
+            NSLayoutConstraint.deactivate(canvas.constraints.filter { $0.secondItem == nil && (($0.firstItem as? UIView) === canvas) })
+            if isGroup {
+                canvas.addSubview(result)
+                result.backgroundColor = .clear
+                result.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([result.leadingAnchor.constraint(equalTo: canvas.leadingAnchor), result.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), result.topAnchor.constraint(equalTo: canvas.topAnchor), result.bottomAnchor.constraint(equalTo: canvas.bottomAnchor)])
+            }
+            outer = canvas
+        }
+        if !hasDraw && type != "LinearLayout" && type != "ScrollView" && type != "FrameLayout" && padding != .zero {
             let wrapper = UIView()
             wrapper.addSubview(result)
             result.translatesAutoresizingMaskIntoConstraints = false
@@ -394,12 +467,17 @@ final class RunnerController: UIViewController, UINavigationControllerDelegate {
             ])
             outer = wrapper
         }
-        if let background = color(node["bg"]) { outer.backgroundColor = background }
-        if let radius = node["radius"] as? NSNumber { outer.layer.cornerRadius = CGFloat(radius.doubleValue); outer.clipsToBounds = true }
-        if let alpha = node["alpha"] as? NSNumber { outer.alpha = CGFloat(alpha.doubleValue) }
+        outer.backgroundColor = color(node["bg"]) ?? .clear
+        outer.layer.cornerRadius = (node["radius"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+        outer.clipsToBounds = outer.layer.cornerRadius > 0
+        outer.alpha = (node["alpha"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 1
         outer.isHidden = (node["visible"] as? Bool) == false
         if node["visible"] as? String == "invisible" { outer.alpha = 0 }
-        if node["clickable"] as? Bool == true, !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar", "Spinner"].contains(type), let id = (node["id"] as? NSNumber)?.int32Value {
+        outer.gestureRecognizers?.filter { $0 is CanvasTouch || $0 is ClosureTap }.forEach { outer.removeGestureRecognizer($0) }
+        if node["touch"] as? Bool == true, let id = (node["id"] as? NSNumber)?.int32Value {
+            outer.isUserInteractionEnabled = true
+            outer.addGestureRecognizer(CanvasTouch { [weak self] action, point in self?.forwardTouch(id, action, point) })
+        } else if node["clickable"] as? Bool == true, !["Button", "ImageButton", "EditText", "Switch", "CheckBox", "RadioButton", "SeekBar", "Spinner"].contains(type), let id = (node["id"] as? NSNumber)?.int32Value {
             outer.isUserInteractionEnabled = true
             outer.addGestureRecognizer(ClosureTap { [weak self] in self?.send { idorid_vm_click($0, id) } })
         }
@@ -428,4 +506,36 @@ final class ClosureTap: UITapGestureRecognizer {
         addTarget(self, action: #selector(fire))
     }
     @objc private func fire() { action() }
+}
+
+/// Tracks one finger and leaves child controls free to handle their own gestures.
+final class CanvasTouch: UIGestureRecognizer {
+    private let forward: (Int32, CGPoint) -> Void
+    private var tracked: UITouch?
+    init(_ forward: @escaping (Int32, CGPoint) -> Void) {
+        self.forward = forward
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = true
+    }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard tracked == nil, let touch = touches.first, let view = view else { return }
+        tracked = touch; state = .began; forward(0, touch.location(in: view))
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = tracked, touches.contains(touch), let view = view else { return }
+        state = .changed; forward(2, touch.location(in: view))
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = tracked, touches.contains(touch), let view = view else { return }
+        forward(1, touch.location(in: view)); tracked = nil; state = .ended
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = tracked, touches.contains(touch), let view = view else { return }
+        forward(3, touch.location(in: view)); tracked = nil; state = .cancelled
+    }
+    override func reset() {
+        if let touch = tracked, let view = view { forward(3, touch.location(in: view)) }
+        tracked = nil
+        super.reset()
+    }
 }

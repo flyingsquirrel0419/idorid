@@ -8,7 +8,7 @@ use idorid_vm::Vm;
 fn usage() -> ExitCode {
     eprintln!(
         "usage:\n  idorid main <file.dex|file.apk>... <MainClass>   run static main(String[])\n  idorid run <app.apk> [script...]                 launch an app headless; commands from args or stdin:
-                                                   click <id> | type <id> <text> | back | tick | json | log | quit
+                                                   size <id> <w> <h> | touch <id> <action> <x> <y> | click <id> | type <id> <text> | back | tick | json | log | quit
   idorid dump <file.dex>                           list classes and methods\n\nflags: --stats  print instruction count, GC and timing"
     );
     ExitCode::from(2)
@@ -108,6 +108,9 @@ fn render(v: &serde_json::Value, depth: usize, out: &mut String) {
     let ty = v["type"].as_str().unwrap_or("?");
     let id = v["id"].as_i64().unwrap_or(0);
     let mut line = format!("{}#{id} {ty}", "  ".repeat(depth));
+    if let Some(ops) = v.get("draw").and_then(|d| d.as_array()) {
+        line.push_str(&format!(" [canvas {} ops]", ops.len()));
+    }
     if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
         line.push_str(&format!(" {t:?}"));
     }
@@ -229,6 +232,23 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         let a1 = parts.next().unwrap_or("");
         let rest = parts.next().unwrap_or("");
         let out = match cmd {
+            "size" => {
+                let mut p = rest.split_whitespace();
+                app.set_size(
+                    a1.parse().unwrap_or(0),
+                    p.next().unwrap_or("").parse().unwrap_or(0),
+                    p.next().unwrap_or("").parse().unwrap_or(0),
+                )
+            }
+            "touch" => {
+                let mut p = rest.split_whitespace();
+                app.touch(
+                    a1.parse().unwrap_or(0),
+                    p.next().unwrap_or("").parse().unwrap_or(0),
+                    p.next().unwrap_or("").parse().unwrap_or(0.0),
+                    p.next().unwrap_or("").parse().unwrap_or(0.0),
+                )
+            }
             "click" => app.click(a1.parse().unwrap_or(0)),
             "long" => app.long_click(a1.parse().unwrap_or(0)),
             "type" => app.set_text(a1.parse().unwrap_or(0), rest),

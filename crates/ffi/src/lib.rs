@@ -284,6 +284,7 @@ impl App {
         for a in args {
             match a {
                 CallArg::Int(i) => raw.push(*i as u32),
+                CallArg::Float(f) => raw.push(f.to_bits()),
                 CallArg::Str(s) => match s {
                     Some(s) => {
                         let r = self.vm.new_string(s);
@@ -322,6 +323,23 @@ impl App {
         self.call(
             "launch(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
             &[CallArg::Str(Some(pkg)), CallArg::Str(Some(label)), CallArg::Str(Some(activity)), CallArg::Str(app_class)],
+        )
+    }
+    pub fn set_size(&mut self, id: i32, w: i32, h: i32) -> String {
+        self.call(
+            "setSize(III)Ljava/lang/String;",
+            &[CallArg::Int(id), CallArg::Int(w), CallArg::Int(h)],
+        )
+    }
+    pub fn touch(&mut self, id: i32, action: i32, x: f32, y: f32) -> String {
+        self.call(
+            "touch(IIFF)Ljava/lang/String;",
+            &[
+                CallArg::Int(id),
+                CallArg::Int(action),
+                CallArg::Float(x),
+                CallArg::Float(y),
+            ],
         )
     }
     pub fn click(&mut self, id: i32) -> String {
@@ -401,6 +419,7 @@ impl App {
 
 enum CallArg {
     Int(i32),
+    Float(f32),
     Str(Option<String>),
 }
 
@@ -499,6 +518,8 @@ macro_rules! vm_fn {
 }
 
 vm_fn!(idorid_vm_launch() => |app| app.launch());
+vm_fn!(idorid_vm_set_size(view_id: i32, w: i32, h: i32) => |app| app.set_size(view_id, w, h));
+vm_fn!(idorid_vm_touch(view_id: i32, action: i32, x: f32, y: f32) => |app| app.touch(view_id, action, x, y));
 vm_fn!(idorid_vm_click(view_id: i32) => |app| app.click(view_id));
 vm_fn!(idorid_vm_long_click(view_id: i32) => |app| app.long_click(view_id));
 vm_fn!(idorid_vm_editor_action(view_id: i32) => |app| app.editor_action(view_id));

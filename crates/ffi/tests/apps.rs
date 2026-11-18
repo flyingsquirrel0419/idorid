@@ -94,3 +94,44 @@ fn todo_app_full_flow() {
     // delayed handler messages report when to tick next
     assert!(v["next"].as_i64().unwrap() >= 0);
 }
+
+#[test]
+fn paint_canvas_touch_and_clear() {
+    let mut app = load("examples/paint.apk");
+    let v = ui(&app.launch());
+    let canvas = find(&v["root"], &|n| n.get("draw").is_some()).expect("canvas view");
+    assert_eq!(canvas["touch"], true);
+    assert_eq!(canvas["draw"].as_array().unwrap().len(), 0);
+    let canvas_id = id(canvas);
+    let clear_id = id(by_text(&v, "Clear"));
+    let v = ui(&app.set_size(canvas_id, 320, 480));
+    assert_eq!(v["next"], 16);
+    let canvas = find(&v["root"], &|n| id(n) == canvas_id).unwrap();
+    let ops = canvas["draw"].as_array().unwrap();
+    for op in ["color", "oval", "rect", "rrect", "path", "text", "line"] {
+        assert!(
+            ops.iter().any(|item| item[0] == op),
+            "missing {op}: {ops:?}"
+        );
+    }
+    ui(&app.touch(canvas_id, 0, 20.5, 30.0));
+    ui(&app.touch(canvas_id, 2, 40.0, 50.0));
+    let v = ui(&app.touch(canvas_id, 1, 60.0, 70.0));
+    let canvas = find(&v["root"], &|n| id(n) == canvas_id).unwrap();
+    let path = canvas["draw"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|op| op[0] == "path")
+        .unwrap();
+    assert!(path[1].as_str().unwrap().contains("L 60 70"));
+    let v = ui(&app.click(clear_id));
+    let canvas = find(&v["root"], &|n| id(n) == canvas_id).unwrap();
+    let path = canvas["draw"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|op| op[0] == "path")
+        .unwrap();
+    assert_eq!(path[1], "");
+}

@@ -8,6 +8,7 @@ use idorid_dex::{access, Dex, EncodedValue, NO_INDEX};
 mod debuginfo;
 pub mod heap;
 mod interp;
+mod lambda;
 mod natives;
 mod natives_android;
 pub mod regex;
@@ -41,9 +42,16 @@ pub enum ClassState {
 
 #[derive(Debug, Clone)]
 pub enum ClassSrc {
-    Dex { dex: u16, def: u32 },
-    Array { component: ClassId },
+    Dex {
+        dex: u16,
+        def: u32,
+    },
+    Array {
+        component: ClassId,
+    },
     Primitive(u8),
+    /// Generated at run time (lambda classes).
+    Synthetic,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +121,8 @@ pub enum MKind {
     Missing,
     /// Failed structural verification.
     Invalid(Rc<str>),
+    /// Functional-interface method of a lambda class (see lambda.rs).
+    Lambda(Rc<lambda::Lambda>),
 }
 
 #[derive(Clone)]
@@ -221,6 +231,7 @@ pub struct Vm {
     pub resources: Option<Box<dyn ResourceProvider>>,
     pub storage: Option<Box<dyn Storage>>,
     well_known: WellKnown,
+    lambdas: lambda::Lambdas,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -295,6 +306,7 @@ impl Vm {
             resources: None,
             storage: None,
             well_known: WellKnown::default(),
+            lambdas: lambda::Lambdas::default(),
         };
         vm.add_dex(Rc::from(CORE_DEX))
             .expect("bundled core.dex is valid");
@@ -1213,6 +1225,7 @@ impl Vm {
         roots.push(self.exception);
         roots.push(self.ret as u32);
         roots.extend(self.interned.values().copied());
+        roots.extend(self.lambdas.roots());
         for c in &self.classes {
             roots.push(c.mirror);
             for f in &c.sfields {

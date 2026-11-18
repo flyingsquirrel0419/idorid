@@ -31,6 +31,7 @@ impl Vm {
         let kind = self.methods[m as usize].kind.clone();
         match kind {
             MKind::Native(f) => return f(self, args),
+            MKind::Lambda(l) => return self.call_lambda(&l, args),
             MKind::Abstract => {
                 let msg = self.method_desc(m);
                 return self.throw_new("Ljava/lang/AbstractMethodError;", &msg);
@@ -823,6 +824,13 @@ impl Vm {
                         if let Some(f) = self.frames.last_mut() {
                             f.pc = pc;
                         }
+                        if let MKind::Lambda(l) = &self.methods[target as usize].kind {
+                            let l = l.clone();
+                            let v: Vec<u32> = (0..count).map(|i| r!(reg_of(i))).collect();
+                            self.ret = self.call_lambda(&l, &v)?;
+                            pc += 3;
+                            continue;
+                        }
                         match self.methods[target as usize].kind {
                             MKind::Native(f) => {
                                 let mut buf = [0u32; 16];
@@ -984,6 +992,22 @@ impl Vm {
                         };
                         set!(aa, v as u32);
                         pc += 2;
+                    }
+                    47 if op == 0xfc || op == 0xfd => {
+                        self.maybe_gc();
+                        let v: Vec<u32> = if op == 0xfd {
+                            let first = w!(2) as usize;
+                            (0..aa).map(|i| r!(first + i)).collect()
+                        } else {
+                            let rw = insns[pc + 2] as usize;
+                            let regs = [rw & 0xf, (rw >> 4) & 0xf, (rw >> 8) & 0xf, rw >> 12, a];
+                            (0..b).map(|i| r!(regs[i])).collect()
+                        };
+                        if let Some(f) = self.frames.last_mut() {
+                            f.pc = pc;
+                        }
+                        self.ret = self.invoke_custom(dex, w!(1), &v)?;
+                        pc += 3;
                     }
                     47 => {
                         let msg = format!("unsupported opcode {op:#x} (invoke-polymorphic/custom)");

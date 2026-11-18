@@ -1,7 +1,10 @@
 package android.graphics.drawable;
 public abstract class Drawable {
     int resId;
-    public void setAlpha(int a) {}
+    private int left, top, right, bottom, alpha=255;
+    public void setAlpha(int a) { alpha=a; }
+    public void setBounds(int l,int t,int r,int b) { left=l; top=t; right=r; bottom=b; }
+    public void draw(android.graphics.Canvas canvas) { if (resId != 0) canvas.idoridDrawBitmap(resId,left,top,right,bottom,alpha); }
     public void setTint(int c) {}
     public int getIntrinsicWidth() { return -1; }
     public int getIntrinsicHeight() { return -1; }

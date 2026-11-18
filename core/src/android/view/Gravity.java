@@ -4,7 +4,7 @@ public class Gravity {
         CENTER = 17, START = 0x00800003, END = 0x00800005, FILL = 0x77, FILL_HORIZONTAL = 7, FILL_VERTICAL = 0x70;
     /** idorid: compact host description such as "center" or "left|top". */
     public static String describe(int g) {
-        if (g == 0) return null;
+        if (g == 0 || g == -1) return null;
         StringBuilder sb = new StringBuilder();
         int h = g & 7, v = g & 0x70;
         if ((g & CENTER) == CENTER) return "center";

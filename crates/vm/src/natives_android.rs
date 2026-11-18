@@ -21,6 +21,14 @@ fn mirror_class(vm: &Vm, r: u32) -> Option<crate::ClassId> {
 
 pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
     m.insert(
+        "Landroid/view/VMViews;->overridesOnDraw(Landroid/view/View;)Z",
+        |vm, a| overrides_view(vm, a[0], "onDraw(Landroid/graphics/Canvas;)V"),
+    );
+    m.insert(
+        "Landroid/view/VMViews;->overridesOnTouch(Landroid/view/View;)Z",
+        |vm, a| overrides_view(vm, a[0], "onTouchEvent(Landroid/view/MotionEvent;)Z"),
+    );
+    m.insert(
         "Landroid/content/VMStorage;->load(Ljava/lang/String;)Ljava/lang/String;",
         |vm, a| {
             let path = vm.rust_string(a[0]).unwrap_or_default();
@@ -165,6 +173,17 @@ pub fn register(m: &mut HashMap<&'static str, NativeFn>) {
             }
         },
     );
+}
+
+fn overrides_view(vm: &mut Vm, obj: u32, sig: &str) -> JResult<u64> {
+    let Some(cls) = vm.heap.get(obj).map(|o| o.class) else {
+        return Ok(0);
+    };
+    let id = vm.sig_id(sig);
+    Ok(vm
+        .find_virtual(cls, id)
+        .map(|m| vm.class(vm.methods[m as usize].class).name.as_ref() != "Landroid/view/View;")
+        .unwrap_or(false) as u64)
 }
 
 fn not_found(vm: &mut Vm, id: u32) -> JResult<u64> {

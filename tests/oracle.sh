@@ -15,7 +15,10 @@ for src in "$ROOT"/tests/java/${1:-*}.java; do
   name="$(basename "$src" .java)"
   d="$OUT/$name"; rm -rf "$d"; mkdir -p "$d/classes"
   javac --release 8 -nowarn -encoding UTF-8 -d "$d/classes" "$src" 2>"$d/javac.err" || { echo "javac failed: $name"; cat "$d/javac.err"; fail=$((fail+1)); failed+=("$name"); continue; }
-  (cd "$d/classes" && "$D8" --min-api 21 --lib "$ANDROID_JAR" --output "$d" $(find . -name '*.class')) 2>"$d/d8.err" || { echo "d8 failed: $name"; cat "$d/d8.err"; fail=$((fail+1)); failed+=("$name"); continue; }
+  api="$(sed -n 's|^// min-api: *\([0-9]*\).*|\1|p' "$src" | head -1)"
+  api="${api:-${ORACLE_MIN_API:-21}}"
+  flags="$(sed -n 's|^// d8-flags: *||p' "$src" | head -1)"
+  (cd "$d/classes" && "$D8" $flags --min-api "$api" --lib "$ANDROID_JAR" --output "$d" $(find . -name '*.class')) 2>"$d/d8.err" || { echo "d8 failed: $name"; cat "$d/d8.err"; fail=$((fail+1)); failed+=("$name"); continue; }
   java -cp "$d/classes" "$name" >"$d/expected.txt" 2>/dev/null
   timeout 60 "$BIN" main "$d/classes.dex" "$name" >"$d/actual.txt" 2>"$d/stderr.txt"
   if cmp -s "$d/expected.txt" "$d/actual.txt"; then
