@@ -451,6 +451,7 @@ fn neo(args: &[String]) -> ExitCode {
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(300));
             if DUMP.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("[neo] binder:\n{}", idorid_kernel::binder::dump());
                 eprintln!("[neo] threads:\n{}", idorid_kernel::task::dump_threads(&k));
             }
         });

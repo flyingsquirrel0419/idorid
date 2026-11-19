@@ -169,6 +169,9 @@ pub struct Mm {
     generation: AtomicU64,
     pub brk: Mutex<(u64, u64)>, // (start, current)
     pub mmap_base: u64,
+    /// Serializes "pick a free range, then map it" so two threads mmapping
+    /// at once cannot receive (and then clobber) the same range.
+    pub map_lock: Mutex<()>,
 }
 
 /// Global cache of read-only file pages, keyed by (file id, page index).
@@ -210,6 +213,7 @@ impl Mm {
             generation: AtomicU64::new(1),
             brk: Mutex::new((0, 0)),
             mmap_base: 0x7f_0000_0000,
+            map_lock: Mutex::new(()),
         }
     }
 
@@ -249,6 +253,7 @@ impl Mm {
             generation: AtomicU64::new(1),
             brk: Mutex::new(*self.brk.lock()),
             mmap_base: self.mmap_base,
+            map_lock: Mutex::new(()),
         }
     }
 
@@ -417,6 +422,7 @@ impl Mm {
         may_move: bool,
         fixed: Option<u64>,
     ) -> Result<u64, i64> {
+        let _map_guard = self.map_lock.lock();
         let old_len = page_up(old_len);
         let new_len = page_up(new_len);
         let Some(v) = self.vma_at(old) else {

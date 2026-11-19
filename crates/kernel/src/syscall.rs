@@ -25,10 +25,24 @@ const AT_SYMLINK_NOFOLLOW: u32 = 0x100;
 const AT_REMOVEDIR: u32 = 0x200;
 const AT_EMPTY_PATH: u32 = 0x1000;
 
+/// `IDORID_STRACE=1` traces everything; any other value traces only
+/// processes whose comm contains it (e.g. `IDORID_STRACE=systemui`).
+fn strace_match(ctx: &Ctx) -> bool {
+    static FILTER: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    match FILTER.get_or_init(|| {
+        std::env::var("IDORID_STRACE")
+            .ok()
+            .filter(|v| !v.is_empty() && v != "1")
+    }) {
+        None => true,
+        Some(f) => ctx.process.comm.lock().contains(f.as_str()),
+    }
+}
+
 pub fn dispatch(ctx: &Ctx, cpu: &mut Cpu) -> Flow {
     let nr = cpu.x[8];
     let a = [cpu.x[0], cpu.x[1], cpu.x[2], cpu.x[3], cpu.x[4], cpu.x[5]];
-    let trace = ctx.kernel.trace_syscalls.load(Ordering::Relaxed);
+    let trace = ctx.kernel.trace_syscalls.load(Ordering::Relaxed) && strace_match(ctx);
     // Syscalls that change control flow.
     match nr {
         93 => {
@@ -1113,6 +1127,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             }
             let new = page_up(want);
             if new > cur {
+                let _map_guard = mm.map_lock.lock();
                 if mm.find_free(cur, new - cur) != Some(cur) {
                     return cur as i64;
                 }
@@ -1444,6 +1459,9 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             let mut info = SigInfo::simple(sig, -1, ctx.process.pid, 0);
             mm.read(uinfo, &mut info.bytes);
             info.signo = sig;
+            // Linux reports the queued signal number in si_signo (bionic's
+            // abort() leaves it zero in the siginfo it passes).
+            info.bytes[0..4].copy_from_slice(&(sig as i32).to_le_bytes());
             if nr == 240 {
                 if let Some(t) = ctx.kernel.threads.lock().get(&pid).cloned() {
                     ctx.kernel.send_signal_thread(&t, info);
@@ -1878,6 +1896,7 @@ fn sys_mmap(ctx: &Ctx, a: [u64; 6]) -> i64 {
     }
     let len = page_up(len);
     let mm = &ctx.mm;
+    let _map_guard = mm.map_lock.lock();
     let start = if flags & MAP_FIXED != 0 {
         if addr & PAGE_MASK != 0 {
             return EINVAL;

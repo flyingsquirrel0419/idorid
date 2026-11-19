@@ -231,6 +231,11 @@ thread_local! {
 
 /// True if the calling guest thread has a deliverable signal (used by
 /// blocking operations to return EINTR).
+/// Guest tid of the calling host thread, if it runs a guest thread.
+pub fn current_tid() -> Option<i32> {
+    CURRENT.with(|c| c.borrow().as_ref().map(|t| t.tid))
+}
+
 pub fn current_signal_pending() -> bool {
     CURRENT.with(|c| {
         c.borrow().as_ref().is_some_and(|t| {
@@ -281,6 +286,28 @@ impl Ctx {
         self.process.fds()
     }
 
+    /// Synchronous fault signal (Linux force_sig_info): if it is blocked or
+    /// ignored, reset it to the default action and unblock it, so a fault
+    /// inside its own handler (stack overflow into a guard page) kills the
+    /// process instead of re-faulting forever.
+    pub fn force_sig(&self, info: SigInfo) {
+        let sig = info.signo;
+        let bit = 1u64 << (sig - 1);
+        let blocked = self.thread.sigmask.load(Ordering::Relaxed) & bit != 0;
+        {
+            let actions = self.process.sigactions();
+            let mut a = actions.lock();
+            let act = &mut a[(sig - 1) as usize];
+            if blocked || act.handler == SIG_IGN {
+                act.handler = SIG_DFL;
+            }
+        }
+        if blocked {
+            self.thread.sigmask.fetch_and(!bit, Ordering::Relaxed);
+        }
+        self.thread.pending.lock().push(info);
+    }
+
     pub fn signal_pending(&self) -> bool {
         let blocked = self.thread.sigmask.load(Ordering::Relaxed);
         self.process.dying.load(Ordering::Relaxed)
@@ -307,6 +334,12 @@ impl Ctx {
             if sig == SIGKILL || act.handler == SIG_DFL {
                 match sig {
                     SIGCHLD | SIGURG | SIGWINCH | SIGCONT => continue,
+                    // bionic-reserved RT signals (libbacktrace, debuggerd,
+                    // heapprofd...): senders install a handler, signal, and
+                    // restore it after a timeout. On a slow interpreted CPU
+                    // the signal can land after the restore; ignore it
+                    // rather than killing the process (zygote).
+                    33..=40 if sig != SIGKILL => continue,
                     SIGSTOP | SIGTSTP | 21 | 22 => continue, // stopping not supported
                     _ => {
                         let core = matches!(
@@ -337,6 +370,18 @@ impl Ctx {
             }
             if act.handler == SIG_IGN {
                 continue;
+            }
+            if self.kernel.trace_syscalls.load(Ordering::Relaxed) {
+                self.kernel.log(&format!(
+                    "[strace] {} {}: deliver signal {} code {} -> handler {:#x} flags {:#x} pc={}",
+                    self.process.pid,
+                    self.thread.tid,
+                    sig,
+                    info.code,
+                    act.handler,
+                    act.flags,
+                    locate(&self.mm, cpu.pc)
+                ));
             }
             if !self.setup_frame(cpu, &info, &act) {
                 self.kernel.log(&format!(
@@ -564,22 +609,16 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
                     }
                     // SEGV_MAPERR (1) or SEGV_ACCERR (2).
                     let code = if ctx.mm.vma_at(addr).is_some() { 2 } else { 1 };
-                    thread
-                        .pending
-                        .lock()
-                        .push(SigInfo::fault(SIGSEGV, code, addr));
+                    ctx.force_sig(SigInfo::fault(SIGSEGV, code, addr));
                     break false;
                 }
                 Exit::Alignment { addr } => {
-                    thread.pending.lock().push(SigInfo::fault(SIGBUS, 1, addr));
+                    ctx.force_sig(SigInfo::fault(SIGBUS, 1, addr));
                     break false;
                 }
                 Exit::Brk(imm) => {
                     // brk #0x3e8 is how bionic/ART abort; report like Linux.
-                    thread
-                        .pending
-                        .lock()
-                        .push(SigInfo::fault(SIGTRAP, 1, cpu.pc));
+                    ctx.force_sig(SigInfo::fault(SIGTRAP, 1, cpu.pc));
                     let _ = imm;
                     break false;
                 }
@@ -590,10 +629,7 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
                         ctx.process.comm.lock(),
                         cpu.pc
                     ));
-                    thread
-                        .pending
-                        .lock()
-                        .push(SigInfo::fault(SIGILL, 1, cpu.pc));
+                    ctx.force_sig(SigInfo::fault(SIGILL, 1, cpu.pc));
                     break false;
                 }
             }
@@ -622,7 +658,7 @@ pub fn dump_threads(kernel: &crate::Kernel) -> String {
             "running".to_string()
         } else {
             let table = t.fds.lock().clone().unwrap_or_else(|| p.fds.read().clone());
-            let file = if matches!(v[0], 29 | 63 | 64 | 25) {
+            let file = if matches!(v[0], 29 | 63 | 64 | 25 | 22) {
                 table
                     .lock()
                     .get(v[1] as i32)
@@ -631,7 +667,25 @@ pub fn dump_threads(kernel: &crate::Kernel) -> String {
             } else {
                 String::new()
             };
-            format!("syscall {} ({:#x}, {:#x}){file}", v[0], v[1], v[2])
+            let mut epoll = String::new();
+            if v[0] == 22 {
+                if let Ok(f) = table.lock().get(v[1] as i32) {
+                    if let Some(ep) = f.node.as_any().downcast_ref::<crate::fd::Epoll>() {
+                        for (fd, it) in ep.items.lock().iter() {
+                            let (path, ready) = match it.file.upgrade() {
+                                Some(f) => (f.path.clone(), f.node.poll()),
+                                None => ("<dead>".into(), 0),
+                            };
+                            epoll.push_str(&format!(
+                                " [{fd} {path} ev={:#x} ready={ready:#x}{}]",
+                                it.events,
+                                if it.disabled { " disabled" } else { "" }
+                            ));
+                        }
+                    }
+                }
+            }
+            format!("syscall {} ({:#x}, {:#x}){file}{epoll}", v[0], v[1], v[2])
         };
         out.push_str(&format!(
             "tid {} pid {} {} [{}]: {}\n    pc {}\n    lr {}\n",

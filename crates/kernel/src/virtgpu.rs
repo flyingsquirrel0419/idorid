@@ -30,8 +30,10 @@ impl Default for GpuFence {
 }
 impl GpuFence {
     pub fn signal(&self) {
-        self.time
-            .store(crate::time::monotonic().as_nanos() as u64, Ordering::Relaxed);
+        self.time.store(
+            crate::time::monotonic().as_nanos() as u64,
+            Ordering::Relaxed,
+        );
         self.signaled.store(true, Ordering::Release);
         self.queue.notify();
     }

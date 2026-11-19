@@ -104,6 +104,7 @@ fn map_segments(
     let hi = page_up(loads.iter().map(|p| p.vaddr + p.memsz).max().unwrap());
     let bias = if e.etype == 3 {
         // ET_DYN: pick a free range.
+        let _map_guard = mm.map_lock.lock();
         let at = mm.find_free(base_hint, hi - lo).ok_or(ENOMEM)?;
         at - lo
     } else {

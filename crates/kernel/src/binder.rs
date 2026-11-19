@@ -128,10 +128,64 @@ pub struct Binder {
     mem: Arc<SharedMem>,
     wq: Arc<WaitQueue>,
 }
+static CONTEXTS: Mutex<Vec<std::sync::Weak<BinderContext>>> = Mutex::new(Vec::new());
+
 impl BinderContext {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+        let c = Arc::new(Self::default());
+        CONTEXTS.lock().push(Arc::downgrade(&c));
+        c
     }
+}
+
+/// Diagnostics: queued work and transaction stacks of every binder thread.
+pub fn dump() -> String {
+    let mut out = String::new();
+    for (i, c) in CONTEXTS
+        .lock()
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .enumerate()
+    {
+        let Some(s) = c.state.try_lock_for(std::time::Duration::from_millis(500)) else {
+            out.push_str(&format!("binder context {i}: LOCKED\n"));
+            continue;
+        };
+        out.push_str(&format!("binder context {i}:\n"));
+        let pid_of = |id: &u64| s.procs.get(id).map_or(-1, |p| p.pid);
+        let mut procs: Vec<_> = s.procs.iter().collect();
+        procs.sort_by_key(|(_, p)| p.pid);
+        for (_, p) in procs {
+            let busy: Vec<_> = p
+                .threads
+                .iter()
+                .filter(|(_, t)| {
+                    !t.todo.is_empty() || !t.stack.is_empty() || t.waiting_on.is_some()
+                })
+                .collect();
+            if p.todo.is_empty() && busy.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("  pid {} todo {}\n", p.pid, p.todo.len()));
+            for (tid, t) in busy {
+                let stack: Vec<String> = t
+                    .stack
+                    .iter()
+                    .map(|(proc_id, tid, _)| format!("{}:{}", pid_of(proc_id), tid))
+                    .collect();
+                out.push_str(&format!(
+                    "    tid {} todo {} waiting {} looper {} waiting_on {:?} stack [{}]\n",
+                    tid,
+                    t.todo.len(),
+                    t.waiting,
+                    t.looper,
+                    t.waiting_on.map(|id| pid_of(&id)),
+                    stack.join(" ")
+                ));
+            }
+        }
+    }
+    out
 }
 impl Binder {
     pub fn new(context: Arc<BinderContext>) -> Arc<Self> {
@@ -1288,13 +1342,18 @@ impl Node for Binder {
         }
     }
     fn poll(&self) -> u32 {
+        // Like Linux binder_poll: readable if the process queue or the
+        // *polling thread's* own queue has work (servicemanager polls its
+        // single looper thread through epoll).
+        let tid = crate::task::current_tid();
         let s = self.context.state.lock();
-        POLLOUT
-            | if s.procs.get(&self.id).is_some_and(|p| !p.todo.is_empty()) {
-                POLLIN
-            } else {
-                0
-            }
+        let ready = s.procs.get(&self.id).is_some_and(|p| {
+            !p.todo.is_empty()
+                || tid
+                    .and_then(|tid| p.threads.get(&tid))
+                    .is_some_and(|t| !t.todo.is_empty())
+        });
+        POLLOUT | if ready { POLLIN } else { 0 }
     }
     fn wait_queue(&self) -> Option<Arc<WaitQueue>> {
         Some(self.wq.clone())

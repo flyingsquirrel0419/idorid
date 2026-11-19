@@ -977,7 +977,7 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
         if !ctx.mm.read(a[1], &mut d) {
             return Err(EFAULT);
         }
-        let dest = if a[4] != 0 {
+        let dest = if a[4] != 0 && netlink.is_none() {
             Some(read_addr(ctx, a[4], a[5])?)
         } else {
             None
@@ -1023,7 +1023,7 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
             }
             off += (clen + 7) & !7;
         }
-        let dest = if name != 0 && namelen > 0 {
+        let dest = if name != 0 && namelen > 0 && netlink.is_none() {
             Some(read_addr(ctx, name, namelen)?)
         } else {
             None
@@ -1058,7 +1058,11 @@ fn recv(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
         nl[0] = 16;
         let write_nl = |addr: u64, lenp: u64| {
             if addr != 0 {
-                let cap = if lenp != 0 { ctx.mm.read_u32(lenp).unwrap_or(0) } else { 12 };
+                let cap = if lenp != 0 {
+                    ctx.mm.read_u32(lenp).unwrap_or(0)
+                } else {
+                    12
+                };
                 let _ = ctx.mm.write(addr, &nl[..(cap as usize).min(12)]);
                 if lenp != 0 {
                     ctx.mm.write_u32(lenp, 12);

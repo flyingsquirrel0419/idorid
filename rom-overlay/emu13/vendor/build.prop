@@ -97,3 +97,7 @@ dalvik.vm.usejitprofiles=false
 # idorid: an interpreted CPU is slower than hardware; scale framework
 # timeouts (Watchdog, input dispatch, binder waits).
 ro.hw_timeout_multiplier=5
+# idorid: no mount namespaces; app data isolation (tmpfs over /data/user in
+# a private namespace) cannot work.
+persist.zygote.app_data_isolation=false
+persist.sys.vold_app_data_isolation_enabled=false
