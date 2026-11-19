@@ -1,0 +1,9 @@
+#!/system/bin/sh
+# idorid neo: APEXes are already activated under /apex (tools/fetch-rom.sh
+# unpacks them at build time), so apexd only reports success.
+case "$1" in
+  --bootstrap|--otachroot-bootstrap|--unmount-all|--snapshotde|--vm) exit 0 ;;
+esac
+setprop apexd.status activated
+setprop apexd.status ready
+exec sleep 2147483647

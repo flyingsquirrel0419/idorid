@@ -1,0 +1,13 @@
+[package]
+name = "idorid-kernel"
+description = "Linux user-space ABI emulation for idorid neo (boots AOSP userspace on idorid-a64)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+idorid-a64 = { path = "../a64" }
+parking_lot = "0.12"
+libc = "0.2"
+regex = { version = "1.9", default-features = false, features = ["std", "perf", "unicode-perl"] }

@@ -35,6 +35,7 @@ fn main() -> ExitCode {
         return usage();
     };
     match cmd.as_str() {
+        "neo" => neo(&args[1..]),
         "missing" if args.len() >= 2 => {
             // Framework APIs referenced by the app but absent from core.dex.
             let mut vm = Vm::new();
@@ -331,4 +332,78 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         );
     }
     ExitCode::SUCCESS
+}
+
+/// `idorid neo [--rom DIR] [--state DIR] [--env K=V]... -- PATH [ARGS...]`:
+/// runs a guest aarch64 Linux program from the ROM on the neo kernel.
+fn neo(args: &[String]) -> ExitCode {
+    use std::sync::Arc;
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut rom = std::path::PathBuf::from(format!("{home}/aosp/rom13"));
+    let mut state = std::path::PathBuf::from(format!("{home}/aosp/state13"));
+    let mut env: Vec<String> = vec![
+        "PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin".into(),
+        "ANDROID_ROOT=/system".into(),
+        "ANDROID_DATA=/data".into(),
+        "ANDROID_ART_ROOT=/apex/com.android.art".into(),
+        "ANDROID_I18N_ROOT=/apex/com.android.i18n".into(),
+        "ANDROID_TZDATA_ROOT=/apex/com.android.tzdata".into(),
+        "HOME=/".into(),
+        "TERM=dumb".into(),
+    ];
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--rom" => {
+                rom = args[i + 1].clone().into();
+                i += 2;
+            }
+            "--state" => {
+                state = args[i + 1].clone().into();
+                i += 2;
+            }
+            "--env" => {
+                env.push(args[i + 1].clone());
+                i += 2;
+            }
+            "--" => {
+                i += 1;
+                break;
+            }
+            _ => break,
+        }
+    }
+    let prog = &args[i..];
+    if prog.is_empty() {
+        eprintln!("usage: idorid neo [--rom DIR] [--state DIR] [--env K=V] -- /system/bin/sh -c 'echo hi'");
+        return ExitCode::from(2);
+    }
+    let k = idorid_kernel::Kernel::new(idorid_kernel::Config {
+        rom,
+        state,
+        overlays: vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay")],
+        console: Arc::new(|b: &[u8]| {
+            use std::io::Write;
+            let mut o = std::io::stdout().lock();
+            let _ = o.write_all(b);
+            let _ = o.flush();
+        }),
+    });
+    let argv: Vec<&str> = prog.iter().map(|s| s.as_str()).collect();
+    let envp: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
+    let t0 = std::time::Instant::now();
+    let pid = match k.spawn(&prog[0], &argv, &envp) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("exec {} failed: errno {}", prog[0], -e);
+            return ExitCode::from(127);
+        }
+    };
+    k.wait_idle(None);
+    eprintln!("[neo] done in {:?}", t0.elapsed());
+    match k.exit_status(pid) {
+        Some(idorid_kernel::task::ExitStatus::Exited(c)) => ExitCode::from(c as u8),
+        Some(idorid_kernel::task::ExitStatus::Signaled(s, _)) => ExitCode::from(128 + s as u8),
+        None => ExitCode::SUCCESS,
+    }
 }

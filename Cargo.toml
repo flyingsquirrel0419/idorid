@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
+members = ["crates/a64", "crates/kernel", "crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,3 +23,19 @@ panic = "unwind"
 inherits = "release"
 debug = true
 strip = false
+
+# Optimized build that compiles quickly (neo boot experiments).
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+strip = false
+panic = "unwind"
+
+# The CPU interpreter and kernel are far too slow unoptimized (tests boot real
+# guest programs).
+[profile.dev.package.idorid-a64]
+opt-level = 3
+[profile.dev.package.idorid-kernel]
+opt-level = 2
