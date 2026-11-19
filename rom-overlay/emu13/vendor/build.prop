@@ -94,3 +94,6 @@ ro.sf.lcd_density=440
 # caches are dual-mapped and only add work).
 dalvik.vm.usejit=false
 dalvik.vm.usejitprofiles=false
+# idorid: an interpreted CPU is slower than hardware; scale framework
+# timeouts (Watchdog, input dispatch, binder waits).
+ro.hw_timeout_multiplier=5

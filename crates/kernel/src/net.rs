@@ -302,13 +302,17 @@ impl UnixSocket {
                     return Ok((Vec::new(), Vec::new(), Cred::default(), None, 0));
                 }
             }
-            let connected_gone = match &*self.state.lock() {
-                State::Connected { peer } => peer
-                    .upgrade()
-                    .is_none_or(|p| matches!(*p.state.lock(), State::Closed)),
-                State::Closed => true,
-                _ => false,
+            // Release our state lock before locking the peer's (ABBA).
+            let (closed, peer) = match &*self.state.lock() {
+                State::Connected { peer } => (false, Some(peer.clone())),
+                State::Closed => (true, None),
+                _ => (false, None),
             };
+            let connected_gone = closed
+                || peer.is_some_and(|w| {
+                    w.upgrade()
+                        .is_none_or(|p| matches!(*p.state.lock(), State::Closed))
+                });
             if connected_gone && self.ty != SOCK_DGRAM {
                 return Ok((Vec::new(), Vec::new(), Cred::default(), None, 0));
             }
@@ -362,44 +366,57 @@ impl Node for UnixSocket {
     }
     fn poll(&self) -> u32 {
         let mut r = 0;
-        let rx = self.rx.lock();
-        match &*self.state.lock() {
-            State::Listening { backlog } => {
-                if !backlog.is_empty() {
-                    r |= POLLIN;
-                }
+        // Snapshot our own state, then release our locks before touching the
+        // peer: two threads polling both ends must not deadlock (ABBA).
+        let peer = {
+            let rx = self.rx.lock();
+            let state = self.state.lock();
+            if rx.eof {
+                r |= POLLIN | POLLRDHUP;
             }
-            State::Connected { peer } => {
-                if !rx.msgs.is_empty() {
-                    r |= POLLIN;
-                }
-                match peer.upgrade() {
-                    Some(p) if !matches!(*p.state.lock(), State::Closed) => {
-                        if p.rx.lock().bytes < RCVBUF {
-                            r |= POLLOUT;
-                        }
+            match &*state {
+                State::Listening { backlog } => {
+                    if !backlog.is_empty() {
+                        r |= POLLIN;
                     }
-                    _ => {
-                        if self.ty == SOCK_DGRAM {
-                            r |= POLLOUT;
-                        } else {
-                            r |= POLLIN | POLLHUP | POLLRDHUP;
-                        }
+                    None
+                }
+                State::Connected { peer } => {
+                    if !rx.msgs.is_empty() {
+                        r |= POLLIN;
+                    }
+                    Some(peer.clone())
+                }
+                State::Unbound => {
+                    if !rx.msgs.is_empty() {
+                        r |= POLLIN;
+                    }
+                    if self.ty == SOCK_DGRAM {
+                        r |= POLLOUT;
+                    }
+                    None
+                }
+                State::Closed => {
+                    r |= POLLHUP;
+                    None
+                }
+            }
+        };
+        if let Some(peer) = peer {
+            match peer.upgrade() {
+                Some(p) if !matches!(*p.state.lock(), State::Closed) => {
+                    if p.rx.lock().bytes < RCVBUF {
+                        r |= POLLOUT;
+                    }
+                }
+                _ => {
+                    if self.ty == SOCK_DGRAM {
+                        r |= POLLOUT;
+                    } else {
+                        r |= POLLIN | POLLHUP | POLLRDHUP;
                     }
                 }
             }
-            State::Unbound => {
-                if !rx.msgs.is_empty() {
-                    r |= POLLIN;
-                }
-                if self.ty == SOCK_DGRAM {
-                    r |= POLLOUT;
-                }
-            }
-            State::Closed => r |= POLLHUP,
-        }
-        if rx.eof {
-            r |= POLLIN | POLLRDHUP;
         }
         r
     }
@@ -445,6 +462,79 @@ static ABSTRACT: std::sync::LazyLock<Mutex<std::collections::HashMap<String, Wea
 pub struct NetlinkSocket {
     id: u64,
     wq: Arc<WaitQueue>,
+    protocol: u32,
+    rx: Mutex<VecDeque<Vec<u8>>>,
+}
+
+impl NetlinkSocket {
+    /// There is no network stack behind netlink: answer every request the
+    /// way a host without interfaces, routes or rules would, so callers
+    /// waiting for a reply (netd's RouteController, libnl dumps) proceed.
+    fn request(&self, data: &[u8]) {
+        if self.protocol == 15 {
+            return; // NETLINK_KOBJECT_UEVENT: broadcasts only
+        }
+        let mut off = 0;
+        let mut replies = Vec::new();
+        while off + 16 <= data.len() {
+            let h = &data[off..off + 16];
+            let len = u32::from_le_bytes(h[0..4].try_into().unwrap()) as usize;
+            let ty = u16::from_le_bytes(h[4..6].try_into().unwrap());
+            let flags = u16::from_le_bytes(h[6..8].try_into().unwrap());
+            let seq = &h[8..12];
+            if len < 16 {
+                break;
+            }
+            if ty >= 16 {
+                let hdr = |len: u32, ty: u16, flags: u16| {
+                    let mut m = Vec::with_capacity(len as usize);
+                    m.extend_from_slice(&len.to_le_bytes());
+                    m.extend_from_slice(&ty.to_le_bytes());
+                    m.extend_from_slice(&flags.to_le_bytes());
+                    m.extend_from_slice(seq);
+                    m.extend_from_slice(&0u32.to_le_bytes());
+                    m
+                };
+                let is_get = self.protocol == 0 && ty & 3 == 2;
+                if flags & 0x300 != 0 {
+                    // NLM_F_DUMP: an empty multipart answer.
+                    let mut m = hdr(20, 3, 2); // NLMSG_DONE, NLM_F_MULTI
+                    m.extend_from_slice(&0i32.to_le_bytes());
+                    replies.push(m);
+                } else if is_get || flags & 4 != 0 {
+                    // NLMSG_ERROR: ENODEV for lookups, success for changes.
+                    let mut m = hdr(36, 2, 0);
+                    let err: i32 = if is_get { -19 } else { 0 };
+                    m.extend_from_slice(&err.to_le_bytes());
+                    m.extend_from_slice(h);
+                    replies.push(m);
+                }
+            }
+            off += (len + 3) & !3;
+        }
+        if !replies.is_empty() {
+            self.rx.lock().extend(replies);
+            self.wq.notify();
+        }
+    }
+    fn pop(&self, nonblock: bool) -> Result<Vec<u8>> {
+        loop {
+            let seen = self.wq.epoch();
+            if let Some(m) = self.rx.lock().pop_front() {
+                return Ok(m);
+            }
+            if nonblock {
+                return Err(EAGAIN);
+            }
+            if crate::task::current_signal_pending() {
+                return Err(EINTR);
+            }
+            self.wq.wait_change(
+                seen,
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(100)),
+            );
+        }
+    }
 }
 
 impl Node for NetlinkSocket {
@@ -462,26 +552,22 @@ impl Node for NetlinkSocket {
     fn is_stream(&self) -> bool {
         true
     }
-    fn read_at(&self, _o: u64, _b: &mut [u8], nonblock: bool) -> Result<usize> {
-        if nonblock {
-            return Err(EAGAIN);
-        }
-        loop {
-            if crate::task::current_signal_pending() {
-                return Err(EINTR);
-            }
-            let seen = self.wq.epoch();
-            self.wq.wait_change(
-                seen,
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(100)),
-            );
-        }
+    fn read_at(&self, _o: u64, b: &mut [u8], nonblock: bool) -> Result<usize> {
+        let m = self.pop(nonblock)?;
+        let n = m.len().min(b.len());
+        b[..n].copy_from_slice(&m[..n]);
+        Ok(n)
     }
     fn write_at(&self, _o: u64, b: &[u8], _nb: bool) -> Result<usize> {
+        self.request(b);
         Ok(b.len())
     }
     fn poll(&self) -> u32 {
-        POLLOUT
+        if self.rx.lock().is_empty() {
+            POLLOUT
+        } else {
+            POLLOUT | POLLIN
+        }
     }
     fn wait_queue(&self) -> Option<Arc<WaitQueue>> {
         Some(self.wq.clone())
@@ -618,6 +704,8 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
                 AF_NETLINK => Arc::new(NetlinkSocket {
                     id: new_id(),
                     wq: WaitQueue::new(),
+                    protocol: a[2] as u32,
+                    rx: Mutex::new(VecDeque::new()),
                 }),
                 AF_INET | AF_INET6 => return Err(EAFNOSUPPORT),
                 _ => return Err(EAFNOSUPPORT),
@@ -878,10 +966,12 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
 
 fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
     let f = ctx.fds().lock().get(a[0] as i32)?;
-    if f.node.as_any().is::<NetlinkSocket>() {
-        return Ok(a[2] as i64);
-    }
-    let (_, s) = sock(ctx, a[0])?;
+    let netlink = f.node.as_any().downcast_ref::<NetlinkSocket>();
+    let s = if netlink.is_some() {
+        None
+    } else {
+        Some(sock(ctx, a[0])?.1)
+    };
     let (data, fds, dest, flags) = if nr == 206 {
         let mut d = vec![0u8; (a[2] as usize).min(1 << 22)];
         if !ctx.mm.read(a[1], &mut d) {
@@ -940,6 +1030,12 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
         };
         (d, fds, dest, a[2] as u32)
     };
+    if let Some(n) = netlink {
+        drop((fds, dest, flags));
+        n.request(&data);
+        return Ok(data.len() as i64);
+    }
+    let s = s.unwrap();
     let to = match dest {
         Some(n) if s.ty == SOCK_DGRAM => Some(lookup(ctx, &n)?),
         _ => None,
@@ -957,10 +1053,58 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
 fn recv(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
     let f = ctx.fds().lock().get(a[0] as i32)?;
     if let Some(n) = f.node.as_any().downcast_ref::<NetlinkSocket>() {
-        let mut b = vec![0u8; 16];
-        return n
-            .read_at(0, &mut b, f.nonblock() || a[3] as u32 & MSG_DONTWAIT != 0)
-            .map(|x| x as i64);
+        // Replies come from the "kernel": sockaddr_nl { AF_NETLINK, pid 0 }.
+        let mut nl = [0u8; 12];
+        nl[0] = 16;
+        let write_nl = |addr: u64, lenp: u64| {
+            if addr != 0 {
+                let cap = if lenp != 0 { ctx.mm.read_u32(lenp).unwrap_or(0) } else { 12 };
+                let _ = ctx.mm.write(addr, &nl[..(cap as usize).min(12)]);
+                if lenp != 0 {
+                    ctx.mm.write_u32(lenp, 12);
+                }
+            }
+        };
+        if nr == 207 {
+            let flags = a[3] as u32;
+            let m = n.pop(f.nonblock() || flags & MSG_DONTWAIT != 0)?;
+            let k = m.len().min(a[2] as usize);
+            if !ctx.mm.write(a[1], &m[..k]) {
+                return Err(EFAULT);
+            }
+            write_nl(a[4], a[5]);
+            return Ok(if flags & MSG_TRUNC != 0 { m.len() } else { k } as i64);
+        }
+        let flags = a[2] as u32;
+        let mut h = [0u8; 56];
+        if !ctx.mm.read(a[1], &mut h) {
+            return Err(EFAULT);
+        }
+        let g = |o: usize| u64::from_le_bytes(h[o..o + 8].try_into().unwrap());
+        let (name, iov, iovlen) = (g(0), g(16), g(24));
+        let m = n.pop(f.nonblock() || flags & MSG_DONTWAIT != 0)?;
+        let mut off = 0;
+        for i in 0..iovlen.min(1024) {
+            if off >= m.len() {
+                break;
+            }
+            let base = ctx.mm.read_u64(iov + i * 16).ok_or(EFAULT)?;
+            let len = ctx.mm.read_u64(iov + i * 16 + 8).ok_or(EFAULT)? as usize;
+            let k = len.min(m.len() - off);
+            if !ctx.mm.write(base, &m[off..off + k]) {
+                return Err(EFAULT);
+            }
+            off += k;
+        }
+        if name != 0 {
+            let cap = u32::from_le_bytes(h[8..12].try_into().unwrap()) as usize;
+            let _ = ctx.mm.write(name, &nl[..cap.min(12)]);
+            ctx.mm.write_u32(a[1] + 8, 12);
+        }
+        ctx.mm.write_u64(a[1] + 40, 0); // msg_controllen
+        let truncated = if off < m.len() { MSG_TRUNC } else { 0 };
+        ctx.mm.write_u32(a[1] + 48, truncated);
+        return Ok(if flags & MSG_TRUNC != 0 { m.len() } else { off } as i64);
     }
     let (_, s) = sock(ctx, a[0])?;
     if nr == 207 {

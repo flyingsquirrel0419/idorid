@@ -9,24 +9,29 @@ use crate::vfs::{self, Node, Stat};
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Renderer discovery, independent of the host renderer implementation.
 pub struct GpuFence {
     signaled: AtomicBool,
     queue: Arc<crate::sync::WaitQueue>,
+    /// CLOCK_MONOTONIC nanoseconds at signal time (sync_fence_info).
+    time: AtomicU64,
 }
 impl Default for GpuFence {
     fn default() -> Self {
         Self {
             signaled: AtomicBool::new(false),
             queue: crate::sync::WaitQueue::new(),
+            time: AtomicU64::new(0),
         }
     }
 }
 impl GpuFence {
     pub fn signal(&self) {
+        self.time
+            .store(crate::time::monotonic().as_nanos() as u64, Ordering::Relaxed);
         self.signaled.store(true, Ordering::Release);
         self.queue.notify();
     }
@@ -121,11 +126,60 @@ impl Node for SyncFile {
                     fence[..10].copy_from_slice(b"virtio_gpu");
                     fence[32..42].copy_from_slice(b"virtio_gpu");
                     fence[64..68].copy_from_slice(&(signaled as i32).to_le_bytes());
+                    let time = self.fence.time.load(Ordering::Relaxed);
+                    fence[72..80].copy_from_slice(&time.to_le_bytes());
                     if !ctx.mm.write(ptr, &fence) {
                         return Err(EFAULT);
                     }
                 }
                 if !ctx.mm.write(arg, &info) {
+                    return Err(EFAULT);
+                }
+                Ok(0)
+            }
+            // SYNC_IOC_MERGE
+            0xc030_3e03 => {
+                let fd2 = ctx.mm.read_u32(arg + 32).ok_or(EFAULT)? as i32;
+                let other = ctx.fds().lock().get(fd2)?;
+                let other = other
+                    .node
+                    .as_any()
+                    .downcast_ref::<SyncFile>()
+                    .ok_or(EINVAL)?
+                    .fence
+                    .clone();
+                let merged = Arc::new(GpuFence::default());
+                let parts = [self.fence.clone(), other];
+                if parts.iter().all(|f| f.signaled.load(Ordering::Acquire)) {
+                    merged.signal();
+                } else {
+                    let m = merged.clone();
+                    std::thread::Builder::new()
+                        .name("sync-merge".into())
+                        .spawn(move || {
+                            for f in &parts {
+                                loop {
+                                    let epoch = f.queue.epoch();
+                                    if f.signaled.load(Ordering::Acquire) {
+                                        break;
+                                    }
+                                    f.queue.wait_change(epoch, None);
+                                }
+                            }
+                            m.signal();
+                        })
+                        .map_err(|_| ENOMEM)?;
+                }
+                let node = Arc::new(SyncFile {
+                    id: vfs::new_id(),
+                    fence: merged,
+                });
+                let file =
+                    crate::fd::OpenFile::new(node, crate::fd::O_RDWR, "anon_inode:[sync_file]");
+                let table = ctx.fds();
+                let fd = table.lock().insert(file, true)?;
+                if !ctx.mm.write_u32(arg + 36, fd as u32) {
+                    let _ = table.lock().close(fd);
                     return Err(EFAULT);
                 }
                 Ok(0)

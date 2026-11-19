@@ -446,7 +446,7 @@ fn neo(args: &[String]) -> ExitCode {
         extern "C" fn on_usr1(_: libc::c_int) {
             DUMP.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        unsafe { libc::signal(libc::SIGUSR1, on_usr1 as libc::sighandler_t) };
+        unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
         let k = k.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(300));

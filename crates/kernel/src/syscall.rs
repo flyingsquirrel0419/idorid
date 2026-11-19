@@ -2558,7 +2558,13 @@ fn sys_sigtimedwait(ctx: &Ctx, a: [u64; 6]) -> i64 {
         None
     };
     loop {
-        let blocked = !set;
+        // A dying group (exit_group, SIGKILL) must not keep a thread parked
+        // here: Android's "Signal Catcher" sits in sigtimedwait forever.
+        if ctx.process.dying.load(Ordering::SeqCst) {
+            return EINTR;
+        }
+        // SIGKILL/SIGSTOP are never consumed by sigtimedwait.
+        let blocked = !set | (1 << (SIGKILL - 1)) | (1 << 18);
         let got = ctx
             .thread
             .pending
@@ -2578,8 +2584,8 @@ fn sys_sigtimedwait(ctx: &Ctx, a: [u64; 6]) -> i64 {
         }
         // Other (unblocked, not in set) signals interrupt.
         let mask = ctx.thread.sigmask.load(Ordering::Relaxed);
-        let others =
-            (ctx.thread.pending.lock().set | ctx.process.pending.lock().set) & !mask & !set;
+        let others = (ctx.thread.pending.lock().set | ctx.process.pending.lock().set)
+            & (!mask & !set | (1 << (SIGKILL - 1)));
         if others != 0 {
             return EINTR;
         }
