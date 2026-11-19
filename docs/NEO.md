@@ -56,11 +56,16 @@ The unmodified Android 13 emulator ROM boots on our CPU and kernel up to
 - servicemanager, hwservicemanager, vold, keystore2, keymint, ~40 HALs;
 - zygote: ART initializes, preloads classes, resources and libraries, and
   forks `system_server`, which starts its bootstrap services;
-- blocked on: graphics (SurfaceFlinger needs gfxstream / virtio-gpu) and
-  eBPF (netd).
+- netd runs on our bpf(2) emulation;
+- blocked on: graphics (SurfaceFlinger needs the composer to reach gfxstream
+  over virtio-gpu; the host side renders through lavapipe/MoltenVK).
 
-Speed today: ~40 M guest instructions/s (pure interpreter). Planned: decoded
-block cache, then build-time AOT of profile-selected hot ROM pages.
+Speed today: ~40 M guest instructions/s (interpreter with a decoded block
+cache). In progress: build-time AOT of profile-selected hot ROM pages.
+
+`idorid neo-install <rom.zip> <dir>` installs a Google system image (sparse
+images, super partition, ext4, APEX flattening, SELinux labels) in pure Rust;
+the iOS app uses the same code to install Android on the device.
 
 ## Running
 
@@ -78,7 +83,7 @@ pages, input for AOT).
 
 `rom-overlay/` holds our patches to the ROM (layered over it read-only):
 64-bit-only zygote, flattened APEX, an fstab without logical partitions, and
-stubs for apexd/bpfloader (and netd until bpf(2) is emulated).
+stubs for apexd and iptables.
 
 ## ROM
 
