@@ -27,7 +27,7 @@ const AT_EMPTY_PATH: u32 = 0x1000;
 
 /// `IDORID_STRACE=1` traces everything; any other value traces only
 /// processes whose comm contains it (e.g. `IDORID_STRACE=systemui`).
-fn strace_match(ctx: &Ctx) -> bool {
+pub(crate) fn strace_match(ctx: &Ctx) -> bool {
     static FILTER: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     match FILTER.get_or_init(|| {
         std::env::var("IDORID_STRACE")
@@ -35,7 +35,10 @@ fn strace_match(ctx: &Ctx) -> bool {
             .filter(|v| !v.is_empty() && v != "1")
     }) {
         None => true,
-        Some(f) => ctx.process.comm.lock().contains(f.as_str()),
+        Some(f) => {
+            ctx.process.comm.lock().contains(f.as_str())
+                || ctx.process.exe.lock().contains(f.as_str())
+        }
     }
 }
 
@@ -59,10 +62,22 @@ pub fn dispatch(ctx: &Ctx, cpu: &mut Cpu) -> Flow {
             return Flow::Exit;
         }
         139 => {
+            if trace {
+                ctx.kernel.log(&format!("[{}] rt_sigreturn", ctx.thread.tid));
+            }
             if !ctx.sigreturn(cpu) {
                 ctx.kernel
                     .exit_group(&ctx.process, ExitStatus::Signaled(SIGSEGV, true));
                 return Flow::Exit;
+            }
+            if trace {
+                ctx.kernel.log(&format!(
+                    "[{}] rt_sigreturn -> pc={} x30={:#x} sp={:#x}",
+                    ctx.thread.tid,
+                    crate::task::locate(&ctx.mm, cpu.pc),
+                    cpu.x[30],
+                    cpu.sp
+                ));
             }
             return Flow::Continue;
         }
@@ -1342,6 +1357,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
         31 => 4 << 13, // ioprio_get: best-effort class
         277 => 0,      // seccomp: accept filters, never enforce
         280 => crate::bpf::syscall(ctx, a[0], a[1], a[2]),
+        270 | 271 => sys_process_vm(ctx, nr == 271, a),
         117 => EPERM, // ptrace
         116 => 0,     // syslog
         142 => {
@@ -3431,5 +3447,70 @@ impl PosixTimer {
             s.0.map(|n| n.saturating_duration_since(Instant::now()))
                 .unwrap_or_default(),
         )
+    }
+}
+
+/// process_vm_readv / process_vm_writev. ART's fault handler relies on
+/// process_vm_readv (SafeCopy) to probe memory while handling SIGSEGV for
+/// implicit null checks; without it every Java NullPointerException crashes.
+fn sys_process_vm(ctx: &Ctx, write: bool, a: [u64; 6]) -> i64 {
+    let (pid, liov, lcnt, riov, rcnt) = (a[0] as i32, a[1], a[2], a[3], a[4]);
+    if a[5] != 0 || lcnt > 1024 || rcnt > 1024 {
+        return EINVAL;
+    }
+    let remote = if pid == ctx.process.pid {
+        ctx.mm.clone()
+    } else {
+        match ctx.kernel.procs.lock().get(&pid) {
+            Some(p) => p.mm(),
+            None => return ESRCH,
+        }
+    };
+    let read_iov = |base: u64, n: u64| -> Option<Vec<(u64, u64)>> {
+        (0..n)
+            .map(|i| Some((ctx.mm.read_u64(base + i * 16)?, ctx.mm.read_u64(base + i * 16 + 8)?)))
+            .collect()
+    };
+    let (Some(local), Some(far)) = (read_iov(liov, lcnt), read_iov(riov, rcnt)) else {
+        return EFAULT;
+    };
+    // Walk both vectors in page-sized chunks; stop at the first fault.
+    let (mut li, mut lo, mut ri, mut ro) = (0usize, 0u64, 0usize, 0u64);
+    let mut done: u64 = 0;
+    let mut buf = vec![0u8; 4096];
+    while li < local.len() && ri < far.len() {
+        let (lb, ll) = local[li];
+        let (rb, rl) = far[ri];
+        if lo >= ll {
+            li += 1;
+            lo = 0;
+            continue;
+        }
+        if ro >= rl {
+            ri += 1;
+            ro = 0;
+            continue;
+        }
+        let raddr = rb + ro;
+        let n = (ll - lo)
+            .min(rl - ro)
+            .min(4096 - (raddr & 4095))
+            .min(4096) as usize;
+        let ok = if write {
+            ctx.mm.read(lb + lo, &mut buf[..n]) && remote.write(raddr, &buf[..n])
+        } else {
+            remote.read(raddr, &mut buf[..n]) && ctx.mm.write(lb + lo, &buf[..n])
+        };
+        if !ok {
+            break;
+        }
+        done += n as u64;
+        lo += n as u64;
+        ro += n as u64;
+    }
+    if done == 0 && (local.iter().any(|x| x.1 > 0) && far.iter().any(|x| x.1 > 0)) {
+        EFAULT
+    } else {
+        done as i64
     }
 }

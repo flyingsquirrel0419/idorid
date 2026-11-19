@@ -371,7 +371,9 @@ impl Ctx {
             if act.handler == SIG_IGN {
                 continue;
             }
-            if self.kernel.trace_syscalls.load(Ordering::Relaxed) {
+            if self.kernel.trace_syscalls.load(Ordering::Relaxed)
+                && crate::syscall::strace_match(self)
+            {
                 self.kernel.log(&format!(
                     "[strace] {} {}: deliver signal {} code {} -> handler {:#x} flags {:#x} pc={}",
                     self.process.pid,

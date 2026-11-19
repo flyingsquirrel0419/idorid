@@ -440,6 +440,21 @@ fn neo(args: &[String]) -> ExitCode {
             }
         }
     }
+    // Host stdin feeds the guest console (init's `console` shell).
+    {
+        let console = k.console.clone();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 256];
+            let mut stdin = std::io::stdin();
+            while let Ok(n) = stdin.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                console.push_input(&buf[..n]);
+            }
+        });
+    }
     // `kill -USR1 <idorid>` dumps every guest thread's syscall and backtrace.
     {
         static DUMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

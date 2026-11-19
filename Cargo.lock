@@ -137,6 +137,7 @@ dependencies = [
  "idorid-kernel",
  "idorid-rom",
  "idorid-vm",
+ "libc",
  "serde_json",
 ]
 

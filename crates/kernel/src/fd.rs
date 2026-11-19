@@ -574,6 +574,11 @@ pub struct Console {
 }
 
 impl Console {
+    /// Feeds bytes typed on the host into the guest console (/dev/console).
+    pub fn push_input(&self, bytes: &[u8]) {
+        self.input.lock().extend(bytes.iter().copied());
+        self.wq.notify();
+    }
     pub fn new(sink: Arc<dyn Fn(&[u8]) + Send + Sync>) -> Arc<Console> {
         Arc::new(Console {
             sink,

@@ -36,6 +36,9 @@ int main(void) {
  if (ioctl(a,WRITE_READ,&wr) || wr.rc!=4 || result!=_IO('r',12)) return puts("nonblock failed"),6;
 
  unsigned char cmd[76], result_buf[128];
+ /* Like Linux, only looper threads take process work: BC_ENTER_LOOPER. */
+ { uint32_t enter=_IO('c',12); struct write_read lw={4,0,(uintptr_t)&enter,0,0,0};
+   if (ioctl(a,WRITE_READ,&lw)) return puts("enter looper failed"),18; }
  struct txn tx={0}; tx.code=42; tx.size=3; tx.buffer=(uintptr_t)"abc";
  uint32_t op=_IOW('c',0,struct txn); memcpy(cmd,&op,4); memcpy(cmd+4,&tx,64);
  wr=(struct write_read){68,0,(uintptr_t)cmd,0,0,0};

@@ -265,10 +265,17 @@ impl Binder {
                 let mut s = self.context.state.lock();
                 let p = s.procs.get_mut(&self.id).ok_or(ECONNREFUSED)?;
                 let t = p.threads.entry(ctx.thread.tid).or_default();
+                // Like binder_available_for_proc_work: only an idle looper
+                // thread (no transaction in flight either way) takes process
+                // work. A client thread waiting for its own reply must not
+                // pick up an unrelated incoming call and run it nested.
+                let available = t.looper && t.waiting_on.is_none() && t.stack.is_empty();
                 let (work, thread_work) = if let Some(work) = t.todo.pop_front() {
                     (Some(work), true)
-                } else {
+                } else if available {
                     (p.todo.pop_front(), false)
+                } else {
+                    (None, false)
                 };
                 if let Some(work) = work {
                     let size = match &work {
@@ -1348,10 +1355,9 @@ impl Node for Binder {
         let tid = crate::task::current_tid();
         let s = self.context.state.lock();
         let ready = s.procs.get(&self.id).is_some_and(|p| {
-            !p.todo.is_empty()
-                || tid
-                    .and_then(|tid| p.threads.get(&tid))
-                    .is_some_and(|t| !t.todo.is_empty())
+            let thread = tid.and_then(|tid| p.threads.get(&tid));
+            let available = thread.is_none_or(|t| t.looper && t.waiting_on.is_none() && t.stack.is_empty());
+            (available && !p.todo.is_empty()) || thread.is_some_and(|t| !t.todo.is_empty())
         });
         POLLOUT | if ready { POLLIN } else { 0 }
     }
