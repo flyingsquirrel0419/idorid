@@ -1,0 +1,10 @@
+[package]
+name = "idorid-rom"
+description = "Installs an Android arm64 system image into the tree idorid neo boots from (no external tools)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }

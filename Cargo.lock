@@ -135,6 +135,7 @@ dependencies = [
  "idorid-ffi",
  "idorid-gpu",
  "idorid-kernel",
+ "idorid-rom",
  "idorid-vm",
  "serde_json",
 ]
@@ -170,6 +171,13 @@ dependencies = [
  "libc",
  "parking_lot",
  "regex",
+]
+
+[[package]]
+name = "idorid-rom"
+version = "0.1.0"
+dependencies = [
+ "zip",
 ]
 
 [[package]]

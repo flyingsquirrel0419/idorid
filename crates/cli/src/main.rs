@@ -36,6 +36,23 @@ fn main() -> ExitCode {
     };
     match cmd.as_str() {
         "neo" => neo(&args[1..]),
+        "neo-install" if args.len() >= 3 => {
+            // idorid neo-install <system-image.zip> <out-dir>
+            let out = std::path::PathBuf::from(&args[2]);
+            let work = out.with_extension("work");
+            let t0 = std::time::Instant::now();
+            match idorid_rom::install(std::path::Path::new(&args[1]), &out, &work, &mut |m| eprintln!("[install] {m}")) {
+                Ok(()) => {
+                    let _ = std::fs::remove_dir_all(&work);
+                    eprintln!("installed in {:?}", t0.elapsed());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("install failed: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         "missing" if args.len() >= 2 => {
             // Framework APIs referenced by the app but absent from core.dex.
             let mut vm = Vm::new();
@@ -378,10 +395,29 @@ fn neo(args: &[String]) -> ExitCode {
         eprintln!("usage: idorid neo [--rom DIR] [--state DIR] [--env K=V] -- /system/bin/sh -c 'echo hi'");
         return ExitCode::from(2);
     }
+    // rom-overlay/<variant> (ROM-specific patches) over rom-overlay/common.
+    let overlays = {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay");
+        let variant = if rom.join("vendor/etc/init/init.cutf_cvm.rc").exists() { "cf13" } else { "emu13" };
+        if variant == "cf13" && std::env::var_os("IDORID_CMDLINE").is_none() {
+            // Cuttlefish "guest_swiftshader" configuration: SwiftShader Vulkan
+            // + ANGLE in the guest, minigbm gralloc, DRM/KMS client composition.
+            std::env::set_var(
+                "IDORID_CMDLINE",
+                "androidboot.hardware=cutf_cvm androidboot.selinux=permissive androidboot.fstab_suffix=idorid \
+                 androidboot.hardware.gralloc=minigbm androidboot.hardware.hwcomposer=ranchu \
+                 androidboot.hardware.hwcomposer.mode=client androidboot.hardware.hwcomposer.display_finder_mode=drm \
+                 androidboot.hardware.egl=angle androidboot.hardware.vulkan=pastel androidboot.cpuvulkan.version=4202496 \
+                 androidboot.opengles.version=196609 androidboot.lcd_density=320 androidboot.serialno=IDORID0001 \
+                 androidboot.hw_timeout_multiplier=20 androidboot.slot_suffix=_a androidboot.force_normal_boot=1",
+            );
+        }
+        vec![base.join(variant), base.join("common")]
+    };
     let k = idorid_kernel::Kernel::new(idorid_kernel::Config {
         rom,
         state,
-        overlays: vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay")],
+        overlays,
         console: Arc::new(|b: &[u8]| {
             use std::io::Write;
             let mut o = std::io::stdout().lock();
