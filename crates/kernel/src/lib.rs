@@ -353,6 +353,7 @@ impl Kernel {
             name: Mutex::new(String::new()),
             saved_mask: Mutex::new(None),
             fds: Mutex::new(None),
+            snap: Default::default(),
         });
         proc_.threads.lock().push(thread.clone());
         self.procs.lock().insert(pid, proc_.clone());
@@ -377,7 +378,26 @@ impl Kernel {
         std::thread::Builder::new()
             .name(format!("guest-{}", thread.tid))
             .stack_size(4 << 20)
-            .spawn(move || task::thread_main(k, thread, cpu))
+            .spawn(move || {
+                let t = thread.clone();
+                let k2 = k.clone();
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    task::thread_main(k, thread, cpu)
+                }));
+                if r.is_err() {
+                    // A kernel bug on this guest thread: fail loudly and take
+                    // the guest process down instead of leaving a ghost thread.
+                    let p = t.process();
+                    k2.log(&format!(
+                        "[kernel] BUG: host panic on tid {} pid {} ({}); killing process",
+                        t.tid,
+                        p.pid,
+                        p.comm.lock()
+                    ));
+                    k2.exit_group(&p, task::ExitStatus::Signaled(task::SIGSEGV, true));
+                    k2.thread_exited(&t);
+                }
+            })
             .expect("spawn host thread");
     }
 

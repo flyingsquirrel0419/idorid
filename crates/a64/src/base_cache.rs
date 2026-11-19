@@ -99,12 +99,19 @@ impl Clone for BlockCache {
         Self::default()
     }
 }
+/// Bumped by IC IVAU / IC IALLU on any guest thread.
+pub static CODE_EPOCH: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
 impl BlockCache {
     pub fn clear(&mut self) {
         self.slots.clear();
     }
     pub fn sync<A: AddressSpace + ?Sized>(&mut self, mem: &A, cpu: &mut Cpu) {
-        let generation = mem.generation();
+        // Self-modifying code (ART JIT, linkers patching PLTs) announces new
+        // instructions with IC IVAU; any thread's IC bumps the global epoch.
+        let generation = mem
+            .generation()
+            .wrapping_add(CODE_EPOCH.load(core::sync::atomic::Ordering::Acquire) << 40);
         let space = mem as *const A as *const () as usize;
         if self.slots.is_empty() {
             self.slots.resize_with(4096, || None);

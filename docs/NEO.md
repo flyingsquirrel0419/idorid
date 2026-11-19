@@ -57,8 +57,13 @@ The unmodified Android 13 emulator ROM boots on our CPU and kernel up to
 - zygote: ART initializes, preloads classes, resources and libraries, and
   forks `system_server`, which starts its bootstrap services;
 - netd runs on our bpf(2) emulation;
-- blocked on: graphics (SurfaceFlinger needs the composer to reach gfxstream
-  over virtio-gpu; the host side renders through lavapipe/MoltenVK).
+- **graphics:** SurfaceFlinger renders with ANGLE on Vulkan through
+  virtio-gpu + gfxstream (host: lavapipe on Linux, MoltenVK on iOS), the
+  ranchu HWC composes, and the boot animation runs:
+
+  <img src="img/neo-bootanim.png" width="240" alt="Android 13 boot animation on idorid neo">
+
+Next: system_server past the boot phases to SystemUI and the launcher.
 
 Speed today: ~40 M guest instructions/s (interpreter with a decoded block
 cache). In progress: build-time AOT of profile-selected hot ROM pages.
@@ -76,7 +81,9 @@ cargo build --profile fast -p idorid-cli
 IDORID_LOGCAT=1 ./target/fast/idorid neo -- /system/bin/init second_stage
 ```
 
-Debug switches: `IDORID_LOGCAT=1` (mirror logd to stderr),
+Debug switches: `kill -USR1 <idorid pid>` (dump every guest thread's
+syscall, fd and backtrace), `IDORID_GPU_DEBUG=1` (fence/sync tracing),
+`IDORID_FB_DUMP=out.png` (write composed frames), `IDORID_LOGCAT=1` (mirror logd to stderr),
 `IDORID_STRACE=1` (syscalls), `IDORID_TRACE_FAULTS=1` (registers and
 file+offset backtraces for guest faults), `IDORID_PROFILE=out.txt` (hot code
 pages, input for AOT).

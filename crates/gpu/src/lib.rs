@@ -366,6 +366,12 @@ impl KernelBackend {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&fence.fence_id);
+            if gpu_debug() {
+                eprintln!(
+                    "gpu: fence {} ctx {} ring {} signaled",
+                    fence.fence_id, fence.ctx_id, fence.ring_idx
+                );
+            }
             if let Some(fence) = pending.and_then(|w| w.upgrade()) {
                 fence.signal();
             }
@@ -653,6 +659,9 @@ impl idorid_kernel::virtgpu::GpuBackend for KernelBackend {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let result = renderer_result(unsafe { (self.renderer.api.create_fence)(&fence) });
+        if gpu_debug() {
+            eprintln!("gpu: fence {id} ctx {ctx} ring {ring:?} created: {result:?}");
+        }
         if result.is_err() {
             self.fences
                 .lock()
@@ -694,4 +703,9 @@ mod tests {
     fn missing_library_is_an_error() {
         assert!(Library::open(Path::new("/nonexistent/idorid-gfxstream.so")).is_err());
     }
+}
+
+fn gpu_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("IDORID_GPU_DEBUG").is_some())
 }

@@ -106,8 +106,11 @@ impl Node for SyncFile {
             // SYNC_IOC_FILE_INFO
             0xc038_3e04 => {
                 let signaled = self.fence.signaled.load(Ordering::Acquire);
+                if std::env::var_os("IDORID_GPU_DEBUG").is_some() {
+                    eprintln!("sync_file {}: info signaled={signaled}", self.id);
+                }
                 let mut info = [0u8; 56];
-                info[..9].copy_from_slice(b"idorid-gpu");
+                info[..10].copy_from_slice(b"idorid-gpu");
                 info[32..36].copy_from_slice(&(signaled as i32).to_le_bytes());
                 let wanted = ctx.mm.read_u32(arg + 40).ok_or(EFAULT)?;
                 let ptr = ctx.mm.read_u64(arg + 48).ok_or(EFAULT)?;
@@ -162,6 +165,9 @@ impl Node for GoldfishSync {
         match cmd {
             // GOLDFISH_SYNC_IOC_QUEUE_WORK
             0xc018_4000 => {
+                if std::env::var_os("IDORID_GPU_DEBUG").is_some() {
+                    eprintln!("goldfish_sync: queue_work");
+                }
                 let fence = Arc::new(GpuFence::default());
                 fence.signal();
                 let node = Arc::new(SyncFile {

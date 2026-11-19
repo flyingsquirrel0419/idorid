@@ -2168,6 +2168,7 @@ fn sys_clone(
             } else {
                 Some(Arc::new(Mutex::new(ctx.fds().lock().clone())))
             }),
+            snap: Default::default(),
         });
         p.threads.lock().push(t.clone());
         (p.clone(), t)
@@ -2246,6 +2247,7 @@ fn sys_clone(
             name: Mutex::new(ctx.thread.name.lock().clone()),
             saved_mask: Mutex::new(None),
             fds: Mutex::new(None),
+            snap: Default::default(),
         });
         np.threads.lock().push(t.clone());
         k.procs.lock().insert(tid, np.clone());

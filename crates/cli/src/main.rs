@@ -41,7 +41,9 @@ fn main() -> ExitCode {
             let out = std::path::PathBuf::from(&args[2]);
             let work = out.with_extension("work");
             let t0 = std::time::Instant::now();
-            match idorid_rom::install(std::path::Path::new(&args[1]), &out, &work, &mut |m| eprintln!("[install] {m}")) {
+            match idorid_rom::install(std::path::Path::new(&args[1]), &out, &work, &mut |m| {
+                eprintln!("[install] {m}")
+            }) {
                 Ok(()) => {
                     let _ = std::fs::remove_dir_all(&work);
                     eprintln!("installed in {:?}", t0.elapsed());
@@ -398,7 +400,11 @@ fn neo(args: &[String]) -> ExitCode {
     // rom-overlay/<variant> (ROM-specific patches) over rom-overlay/common.
     let overlays = {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay");
-        let variant = if rom.join("vendor/etc/init/init.cutf_cvm.rc").exists() { "cf13" } else { "emu13" };
+        let variant = if rom.join("vendor/etc/init/init.cutf_cvm.rc").exists() {
+            "cf13"
+        } else {
+            "emu13"
+        };
         if variant == "cf13" && std::env::var_os("IDORID_CMDLINE").is_none() {
             // Cuttlefish "guest_swiftshader" configuration: SwiftShader Vulkan
             // + ANGLE in the guest, minigbm gralloc, DRM/KMS client composition.
@@ -428,8 +434,26 @@ fn neo(args: &[String]) -> ExitCode {
     if let Some(path) = std::env::var_os("IDORID_GFXSTREAM") {
         match idorid_gpu::KernelBackend::load(std::path::Path::new(&path)) {
             Ok(backend) => k.set_gpu_backend(Some(backend)),
-            Err(err) => { eprintln!("gfxstream initialization failed: {err}"); return ExitCode::FAILURE; }
+            Err(err) => {
+                eprintln!("gfxstream initialization failed: {err}");
+                return ExitCode::FAILURE;
+            }
         }
+    }
+    // `kill -USR1 <idorid>` dumps every guest thread's syscall and backtrace.
+    {
+        static DUMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        extern "C" fn on_usr1(_: libc::c_int) {
+            DUMP.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        unsafe { libc::signal(libc::SIGUSR1, on_usr1 as libc::sighandler_t) };
+        let k = k.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if DUMP.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("[neo] threads:\n{}", idorid_kernel::task::dump_threads(&k));
+            }
+        });
     }
     let argv: Vec<&str> = prog.iter().map(|s| s.as_str()).collect();
     let envp: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
@@ -448,7 +472,12 @@ fn neo(args: &[String]) -> ExitCode {
     }
     let insns = k.insns.load(std::sync::atomic::Ordering::Relaxed);
     let secs = t0.elapsed().as_secs_f64();
-    eprintln!("[neo] done in {:.3}s, {} guest instructions ({:.1} MIPS)", secs, insns, insns as f64 / secs / 1e6);
+    eprintln!(
+        "[neo] done in {:.3}s, {} guest instructions ({:.1} MIPS)",
+        secs,
+        insns,
+        insns as f64 / secs / 1e6
+    );
     match k.exit_status(pid) {
         Some(idorid_kernel::task::ExitStatus::Exited(c)) => ExitCode::from(c as u8),
         Some(idorid_kernel::task::ExitStatus::Signaled(s, _)) => ExitCode::from(128 + s as u8),

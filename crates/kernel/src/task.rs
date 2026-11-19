@@ -206,6 +206,9 @@ pub struct Thread {
     /// Private fd table of a thread created with CLONE_THREAD but without
     /// CLONE_FILES (bionic's debuggerd pseudothread relies on this).
     pub fds: Mutex<Option<Arc<Mutex<FdTable>>>>,
+    /// Diagnostics snapshot taken at syscall entry: nr (u64::MAX while
+    /// running guest code), x0, x1, pc, lr, fp.
+    pub snap: [AtomicU64; 6],
 }
 
 impl Thread {
@@ -524,7 +527,16 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
             };
             match cpu.run(&*ctx.mm, slice) {
                 Exit::Svc(_) => {
-                    match crate::syscall::dispatch(&ctx, &mut cpu) {
+                    let snap = &ctx.thread.snap;
+                    for (i, v) in [cpu.x[8], cpu.x[0], cpu.x[1], cpu.pc, cpu.x[30], cpu.x[29]]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        snap[i].store(v, Ordering::Relaxed);
+                    }
+                    let flow = crate::syscall::dispatch(&ctx, &mut cpu);
+                    snap[0].store(u64::MAX, Ordering::Relaxed);
+                    match flow {
                         crate::syscall::Flow::Continue => {}
                         crate::syscall::Flow::Reload => break false,
                         crate::syscall::Flow::Exit => break true,
@@ -596,6 +608,65 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
 }
 
 /// Symbolic location "file+0xoff" of a guest address.
+/// One line per guest thread plus a frame-pointer backtrace of where it
+/// entered its current syscall (host SIGUSR1 in the CLI).
+pub fn dump_threads(kernel: &crate::Kernel) -> String {
+    let mut threads: Vec<_> = kernel.threads.lock().values().cloned().collect();
+    threads.sort_by_key(|t| t.tid);
+    let mut out = String::new();
+    for t in threads {
+        let p = t.process();
+        let mm = p.mm.read().clone();
+        let v: Vec<u64> = t.snap.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+        let state = if v[0] == u64::MAX {
+            "running".to_string()
+        } else {
+            let table = t.fds.lock().clone().unwrap_or_else(|| p.fds.read().clone());
+            let file = if matches!(v[0], 29 | 63 | 64 | 25) {
+                table
+                    .lock()
+                    .get(v[1] as i32)
+                    .map(|f| format!(" fd={}", f.path))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("syscall {} ({:#x}, {:#x}){file}", v[0], v[1], v[2])
+        };
+        out.push_str(&format!(
+            "tid {} pid {} {} [{}]: {}\n    pc {}\n    lr {}\n",
+            t.tid,
+            p.pid,
+            p.comm.lock(),
+            t.name.lock(),
+            state,
+            locate(&mm, v[3]),
+            locate(&mm, v[4])
+        ));
+        let mut fp = v[5] & 0x00ff_ffff_ffff_ffff;
+        for _ in 0..12 {
+            if fp == 0 || fp & 7 != 0 {
+                break;
+            }
+            let (Some(next), Some(ret)) = (mm.read_u64(fp), mm.read_u64(fp + 8)) else {
+                break;
+            };
+            if ret == 0 {
+                break;
+            }
+            out.push_str(&format!(
+                "    {}\n",
+                locate(&mm, ret & 0x00ff_ffff_ffff_ffff)
+            ));
+            if next <= fp {
+                break;
+            }
+            fp = next;
+        }
+    }
+    out
+}
+
 pub fn locate(mm: &Mm, pc: u64) -> String {
     match mm.vma_at(pc) {
         Some(v) => match &v.backing {

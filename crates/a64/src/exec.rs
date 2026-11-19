@@ -770,7 +770,11 @@ fn execute<A: AddressSpace + ?Sized>(c: &mut Cpu, m: &A, i: u32) -> Result<Optio
                     write_u64(c, m, a + off, 0)?
                 }
             }
-            0xd50b_7b20 | 0xd50b_7a20 | 0xd50b_7e20 | 0xd50b_7520 => {}
+            0xd50b_7520 => {
+                // IC IVAU: instruction cache invalidate (new code written).
+                crate::base_cache::CODE_EPOCH.fetch_add(1, core::sync::atomic::Ordering::Release);
+            }
+            0xd50b_7b20 | 0xd50b_7a20 | 0xd50b_7e20 => {}
             _ => {}
         }
         if matches!(

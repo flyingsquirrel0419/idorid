@@ -89,3 +89,8 @@ ro.incremental.enable=yes
 
 # Match the emulator display density advertised by qemu-props.
 ro.sf.lcd_density=440
+
+# idorid: no JIT on an interpreter (code is interpreted anyway; JIT code
+# caches are dual-mapped and only add work).
+dalvik.vm.usejit=false
+dalvik.vm.usejitprofiles=false
