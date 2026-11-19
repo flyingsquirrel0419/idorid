@@ -45,6 +45,7 @@ for name in ("GfxStreamAgents.h", "GfxStreamAgents.cpp"):
 PY_PATCH
 script_dir=$(cd "$(dirname "$0")" && pwd)
 python3 "$script_dir/gfxstream-frame-hook.py" "$root/src/gfxstream-${revisions[0]}"
+python3 "$script_dir/gfxstream-android13-compat.py" "$root/src/gfxstream-${revisions[0]}"
 out="$root/out"
 cmake -S "$root/src/aemu-${revisions[1]}" -B "$root/build-aemu" -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$out" -DAEMU_COMMON_GEN_PKGCONFIG=ON \

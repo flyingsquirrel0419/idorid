@@ -303,3 +303,21 @@ fn shll_widens_and_shifts_by_lane_width() {
     assert_eq!(cpu.v[1], 0x8765_4321_0000_0000_dead_beef_0000_0000);
     assert_eq!(cpu.v[2], 0x1111_0000_2222_0000_3333_0000_4444_0000);
 }
+
+#[test]
+fn scalar_simd_fcvtzs() {
+    let mem = Memory(UnsafeCell::new([0; 4096]));
+    // fcvtzs s1, s0 ; fcvtzs d2, d3 ; brk #0
+    for (i, word) in [0x5ea1b801u32, 0x5ee1b862, 0xd4200000].iter().enumerate() {
+        unsafe {
+            (&mut *mem.0.get())[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    }
+    let mut cpu = Cpu::new();
+    cpu.v[0] = (-7.75f32).to_bits() as u128 | (1u128 << 100);
+    cpu.v[3] = 1.0e12f64.to_bits() as u128;
+    cpu.v[1] = u128::MAX;
+    assert_eq!(cpu.run(&mem, 10), Exit::Brk(0));
+    assert_eq!(cpu.v[1], (-7i32) as u32 as u128);
+    assert_eq!(cpu.v[2], 1_000_000_000_000u128);
+}

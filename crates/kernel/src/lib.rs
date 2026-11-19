@@ -254,6 +254,11 @@ impl Kernel {
         }
         dev("/dev/ptmx", Arc::new(pty::open_master));
         dev("/dev/goldfish_pipe", Arc::new(goldfish::open));
+        dev(
+            "/dev/goldfish_address_space",
+            Arc::new(virtgpu::GoldfishAddressSpace::open),
+        );
+        dev("/dev/goldfish_sync", Arc::new(virtgpu::GoldfishSync::open));
         for (path, minor) in [("/dev/dri/renderD128", 128), ("/dev/dri/card0", 0)] {
             let backend = self.gpu_backend.clone();
             dev(

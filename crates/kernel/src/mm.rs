@@ -730,6 +730,11 @@ impl AddressSpace for Mm {
         if !idorid_aot::HAS_UNITS {
             return None;
         }
+        // AOT is experimental: opt in until it reliably beats the block cache.
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if !*ENABLED.get_or_init(|| std::env::var_os("IDORID_ENABLE_AOT").is_some()) {
+            return None;
+        }
         let addr = page.checked_mul(PAGE)?;
         let vma = self.vma_at(addr)?;
         if vma.prot & PROT_EXEC == 0 || vma.prot & PROT_WRITE != 0 {

@@ -12,6 +12,8 @@ export IDORID_GFXSTREAM=${IDORID_GFXSTREAM:-"$HOME/gfx/out/lib/libgfxstream_back
 export VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.json}
 "$CARGO_TARGET_DIR/fast/idorid" neo --rom "$work/rom" --state "$work/state" -- /bin/guest > "$work/log" 2>&1 || { cat "$work/log"; exit 1; }
 cat "$work/log"
+grep -q 'GPU_GOLDFISH_ALLOC_OK' "$work/log"
+grep -q 'GPU_LEGACY_ASG_OK' "$work/log"
 grep -q 'GPU_CONTEXT_BLOB_OK' "$work/log"
 grep -q 'GPU_TRANSFER_OK' "$work/log"
 grep -q 'GPU_PRIME_RESOURCE_FENCE_OK' "$work/log"

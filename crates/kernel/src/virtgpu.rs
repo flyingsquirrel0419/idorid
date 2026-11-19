@@ -101,6 +101,88 @@ impl Node for SyncFile {
     fn wait_queue(&self) -> Option<Arc<crate::sync::WaitQueue>> {
         Some(self.fence.queue.clone())
     }
+    fn ioctl(&self, ctx: &Ctx, cmd: u32, arg: u64) -> vfs::Result<i64> {
+        match cmd {
+            // SYNC_IOC_FILE_INFO
+            0xc038_3e04 => {
+                let signaled = self.fence.signaled.load(Ordering::Acquire);
+                let mut info = [0u8; 56];
+                info[..9].copy_from_slice(b"idorid-gpu");
+                info[32..36].copy_from_slice(&(signaled as i32).to_le_bytes());
+                let wanted = ctx.mm.read_u32(arg + 40).ok_or(EFAULT)?;
+                let ptr = ctx.mm.read_u64(arg + 48).ok_or(EFAULT)?;
+                info[40..44].copy_from_slice(&1u32.to_le_bytes());
+                info[48..56].copy_from_slice(&ptr.to_le_bytes());
+                if wanted > 0 {
+                    let mut fence = [0u8; 80];
+                    fence[..10].copy_from_slice(b"virtio_gpu");
+                    fence[32..42].copy_from_slice(b"virtio_gpu");
+                    fence[64..68].copy_from_slice(&(signaled as i32).to_le_bytes());
+                    if !ctx.mm.write(ptr, &fence) {
+                        return Err(EFAULT);
+                    }
+                }
+                if !ctx.mm.write(arg, &info) {
+                    return Err(EFAULT);
+                }
+                Ok(0)
+            }
+            _ => Err(ENOTTY),
+        }
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// `/dev/goldfish_sync`: the emulator's host-signalled timeline. Host
+/// composition is synchronous here (rcCompose returns after composing), so
+/// work queued by HWC gets an already signalled sync_file.
+pub struct GoldfishSync {
+    id: u64,
+}
+impl GoldfishSync {
+    pub fn open() -> vfs::FileRef {
+        Arc::new(Self { id: vfs::new_id() })
+    }
+}
+impl Node for GoldfishSync {
+    fn id(&self) -> u64 {
+        self.id
+    }
+    fn stat(&self) -> Stat {
+        Stat {
+            ino: self.id,
+            mode: vfs::S_IFCHR | 0o666,
+            nlink: 1,
+            ..Default::default()
+        }
+    }
+    fn ioctl(&self, ctx: &Ctx, cmd: u32, arg: u64) -> vfs::Result<i64> {
+        match cmd {
+            // GOLDFISH_SYNC_IOC_QUEUE_WORK
+            0xc018_4000 => {
+                let fence = Arc::new(GpuFence::default());
+                fence.signal();
+                let node = Arc::new(SyncFile {
+                    id: vfs::new_id(),
+                    fence,
+                });
+                let file =
+                    crate::fd::OpenFile::new(node, crate::fd::O_RDWR, "anon_inode:[sync_file]");
+                let table = ctx.fds();
+                let fd = table.lock().insert(file, true)?;
+                if !ctx.mm.write_u32(arg + 16, fd as u32) {
+                    let _ = table.lock().close(fd);
+                    return Err(EFAULT);
+                }
+                Ok(0)
+            }
+            // GOLDFISH_SYNC_IOC_SIGNAL
+            0xc018_4001 => Ok(0),
+            _ => Err(ENOTTY),
+        }
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -178,6 +260,16 @@ struct State {
     resources: HashMap<u32, (Arc<dyn GpuResource>, u64, u32)>,
     next_handle: u32,
     last_fence: Option<Arc<GpuFence>>,
+    legacy_response: Option<u32>,
+    legacy_asg: Option<LegacyAsg>,
+}
+// Android 13 goldfish used a response-page/hostmem-id handshake before
+// gfxstream switched ASG creation to an explicitly supplied ring blob.
+struct LegacyAsg {
+    ring: Arc<dyn GpuResource>,
+    ring_size: u32,
+    buffer_size: u32,
+    hostmem_id: u64,
 }
 impl State {
     fn ensure_context(
@@ -207,6 +299,8 @@ impl VirtGpu {
                 resources: HashMap::new(),
                 next_handle: 1,
                 last_fence: None,
+                legacy_response: None,
+                legacy_asg: None,
             }),
         })
     }
@@ -340,6 +434,9 @@ impl Node for VirtGpu {
                 let handle = state.next_handle;
                 state.next_handle = handle.checked_add(1).ok_or(ENOMEM)?;
                 state.resources.insert(handle, (resource, size as u64, 0));
+                if values == [0, 64, 1 << 17, 4096, 1, 1, 0, 0, 0, 0] && size == 4096 {
+                    state.legacy_response = Some(id);
+                }
                 if !ctx.mm.write_u32(arg + 40, handle) || !ctx.mm.write_u32(arg + 44, id) {
                     state.resources.remove(&handle);
                     return Err(EFAULT);
@@ -417,8 +514,24 @@ impl Node for VirtGpu {
                     }
                     backend.submit(context, &mut cmd)?;
                 }
-                let id = NEXT_RESOURCE.fetch_add(1, Ordering::Relaxed);
-                let resource = backend.create_blob(context, id, mem, flags, blob_id, size)?;
+                let legacy_ring = state
+                    .legacy_asg
+                    .as_ref()
+                    .filter(|asg| {
+                        blob_id == asg.hostmem_id
+                            && size == u64::from(asg.ring_size) + u64::from(asg.buffer_size)
+                    })
+                    .map(|asg| asg.ring.clone());
+                let (resource, id) = if let Some(ring) = legacy_ring {
+                    let id = ring.id();
+                    (ring, id)
+                } else {
+                    let id = NEXT_RESOURCE.fetch_add(1, Ordering::Relaxed);
+                    (
+                        backend.create_blob(context, id, mem, flags, blob_id, size)?,
+                        id,
+                    )
+                };
                 let handle = state.next_handle;
                 state.next_handle = handle.checked_add(1).ok_or(ENOMEM)?;
                 state.resources.insert(handle, (resource, size, mem));
@@ -506,12 +619,87 @@ impl Node for VirtGpu {
                     }
                     state.context.clone().unwrap()
                 };
-                backend.submit(context, &mut bytes).inspect_err(|e| {
-                    eprintln!(
-                        "virtgpu: submit({} bytes, flags {flags:#x}) failed {e}",
-                        bytes.len()
-                    )
-                })?;
+                let opcode = bytes
+                    .get(..4)
+                    .map(|v| u32::from_le_bytes(v.try_into().unwrap()));
+                let mut handled = false;
+                if opcode == Some(0x1001)
+                    && bytes.len() == 8
+                    && u32::from_le_bytes(bytes[4..8].try_into().unwrap()) == 10
+                {
+                    let mut state = self.state.lock();
+                    if state.legacy_response.is_some() && state.legacy_asg.is_none() {
+                        let caps = backend.capset(3, 0)?;
+                        if caps.len() < 12 {
+                            return Err(EINVAL);
+                        }
+                        let ring_size = u32::from_le_bytes(caps[4..8].try_into().unwrap());
+                        let buffer_size = u32::from_le_bytes(caps[8..12].try_into().unwrap());
+                        let size = u64::from(ring_size) + u64::from(buffer_size);
+                        if size == 0 || size > 64 * 1024 * 1024 {
+                            return Err(EINVAL);
+                        }
+                        let id = NEXT_RESOURCE.fetch_add(1, Ordering::Relaxed);
+                        let ring_resource = backend.create_blob(context, id, 2, 1, 0, size)?;
+                        let mut create = [0u8; 8];
+                        create[..4].copy_from_slice(&0x1001u32.to_le_bytes());
+                        create[4..].copy_from_slice(&id.to_le_bytes());
+                        backend.submit(context, &mut create)?;
+                        state.legacy_asg = Some(LegacyAsg {
+                            ring: ring_resource,
+                            ring_size,
+                            buffer_size,
+                            hostmem_id: (1u64 << 63) | id as u64,
+                        });
+                        handled = true;
+                    }
+                } else if opcode == Some(0x1003) && bytes.len() >= 48 {
+                    let state = self.state.lock();
+                    if let Some(asg) = &state.legacy_asg {
+                        let response_id = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                        if Some(response_id) != state.legacy_response {
+                            return Err(EINVAL);
+                        }
+                        let op = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
+                        let mut response = bytes[8..48].to_vec();
+                        let (size, metadata) = match op {
+                            0 => (asg.ring_size as u64, 0),
+                            1 => (asg.buffer_size as u64, 0),
+                            2 => (1, asg.hostmem_id),
+                            4 => (u64::from_le_bytes(response[8..16].try_into().unwrap()), 0),
+                            _ => return Err(EINVAL),
+                        };
+                        response[8..16].copy_from_slice(&size.to_le_bytes());
+                        response[16..24].copy_from_slice(&metadata.to_le_bytes());
+                        let resource = state
+                            .resources
+                            .values()
+                            .find(|(r, _, _)| r.id() == response_id)
+                            .ok_or(EINVAL)?
+                            .0
+                            .clone();
+                        let page = resource.map()?.page(0).ok_or(EINVAL)?;
+                        page.bytes_mut()[..response.len()].copy_from_slice(&response);
+                        handled = true;
+                    }
+                } else if opcode == Some(0x1002) && bytes.len() > 8 {
+                    let state = self.state.lock();
+                    if let Some(asg) = &state.legacy_asg {
+                        let mut ping = [0u8; 8];
+                        ping[..4].copy_from_slice(&0x1002u32.to_le_bytes());
+                        ping[4..].copy_from_slice(&asg.ring.id().to_le_bytes());
+                        backend.submit(context, &mut ping)?;
+                        handled = true;
+                    }
+                }
+                if !handled {
+                    backend.submit(context, &mut bytes).inspect_err(|e| {
+                        eprintln!(
+                            "virtgpu: submit({} bytes, flags {flags:#x}) failed {e}",
+                            bytes.len()
+                        )
+                    })?;
+                }
                 let fence = Arc::new(GpuFence::default());
                 backend.fence(context, ring, fence.clone())?;
                 self.state.lock().last_fence = Some(fence.clone());
@@ -586,6 +774,129 @@ impl Drop for VirtGpu {
         state.resources.clear();
         if let Some((backend, id)) = state.context.take() {
             backend.context_destroy(id);
+        }
+    }
+}
+
+// Goldfish mapper uses this legacy allocator for CPU-side gralloc storage even
+// when the host has not advertised GL direct-memory/DMA support. Offsets are
+// shared between opens so a buffer fd imported by another process sees the
+// same guest pages; this does not advertise host DMA access to those pages.
+static ADDRESS_BLOCKS: std::sync::LazyLock<
+    Mutex<std::collections::BTreeMap<u64, (u64, Arc<SharedMem>)>>,
+> = std::sync::LazyLock::new(|| Mutex::new(std::collections::BTreeMap::new()));
+static NEXT_ADDRESS_OFFSET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(4096);
+const ADDRESS_PHYS_BASE: u64 = 0x4000_0000_0000;
+
+pub struct GoldfishAddressSpace {
+    id: u64,
+    subdevice: Mutex<Option<u64>>,
+    owned: Mutex<Vec<u64>>,
+}
+impl GoldfishAddressSpace {
+    pub fn open() -> vfs::FileRef {
+        Arc::new(Self {
+            id: vfs::new_id(),
+            subdevice: Mutex::new(None),
+            owned: Mutex::new(Vec::new()),
+        })
+    }
+}
+impl Node for GoldfishAddressSpace {
+    fn id(&self) -> u64 {
+        self.id
+    }
+    fn stat(&self) -> Stat {
+        Stat {
+            ino: self.id,
+            mode: vfs::S_IFCHR | 0o666,
+            nlink: 1,
+            ..Default::default()
+        }
+    }
+    fn ioctl(&self, ctx: &Ctx, cmd: u32, arg: u64) -> vfs::Result<i64> {
+        match cmd {
+            0xc018_470a => {
+                if *self.subdevice.lock() != Some(5) {
+                    return Err(EINVAL);
+                }
+                let size = ctx.mm.read_u64(arg).ok_or(EFAULT)?;
+                if size == 0 || size > (1 << 30) {
+                    return Err(EINVAL);
+                }
+                let len = size.checked_add(4095).ok_or(EINVAL)? & !4095;
+                let offset = NEXT_ADDRESS_OFFSET.fetch_add(len, Ordering::Relaxed);
+                let mem = SharedMem::new(len);
+                ADDRESS_BLOCKS.lock().insert(offset, (len, mem));
+                self.owned.lock().push(offset);
+                if !ctx.mm.write_u64(arg, len)
+                    || !ctx.mm.write_u64(arg + 8, offset)
+                    || !ctx.mm.write_u64(arg + 16, ADDRESS_PHYS_BASE + offset)
+                {
+                    ADDRESS_BLOCKS.lock().remove(&offset);
+                    self.owned.lock().retain(|x| *x != offset);
+                    return Err(EFAULT);
+                }
+                Ok(0)
+            }
+            0xc008_470b => {
+                let offset = ctx.mm.read_u64(arg).ok_or(EFAULT)?;
+                let mut owned = self.owned.lock();
+                if !owned.contains(&offset) {
+                    return Err(EINVAL);
+                }
+                owned.retain(|x| *x != offset);
+                ADDRESS_BLOCKS.lock().remove(&offset).ok_or(EINVAL)?;
+                Ok(0)
+            }
+            0xc028_470c => {
+                let mut subdevice = self.subdevice.lock();
+                let metadata = ctx.mm.read_u64(arg + 16).ok_or(EFAULT)?;
+                if subdevice.is_none() {
+                    if metadata != 5 {
+                        return Err(ENODEV);
+                    }
+                    *subdevice = Some(metadata);
+                } else if *subdevice == Some(5) {
+                    let offset = ctx.mm.read_u64(arg).ok_or(EFAULT)?;
+                    if !(metadata == 1 || metadata == 2)
+                        || !ADDRESS_BLOCKS.lock().contains_key(&offset)
+                    {
+                        return Err(EINVAL);
+                    }
+                } else {
+                    return Err(EINVAL);
+                }
+                if !ctx.mm.write_u64(arg + 16, 0) {
+                    return Err(EFAULT);
+                }
+                Ok(0)
+            }
+            _ => Err(ENOTTY),
+        }
+    }
+    fn shared_mem_at(&self, offset: u64, len: u64) -> Option<(Arc<SharedMem>, u64)> {
+        let blocks = ADDRESS_BLOCKS.lock();
+        let (&base, (size, mem)) = blocks.range(..=offset).next_back()?;
+        let relative = offset.checked_sub(base)?;
+        if relative.checked_add(len)? > *size {
+            return None;
+        }
+        Some((mem.clone(), relative))
+    }
+    fn mmap_requires_shared_mem(&self) -> bool {
+        true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+impl Drop for GoldfishAddressSpace {
+    fn drop(&mut self) {
+        let blocks = self.owned.get_mut();
+        let mut global = ADDRESS_BLOCKS.lock();
+        for offset in blocks.drain(..) {
+            global.remove(&offset);
         }
     }
 }

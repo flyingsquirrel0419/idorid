@@ -133,7 +133,7 @@ fn android_servicemanager_and_service_list() {
     let kernel = idorid_kernel::Kernel::new(idorid_kernel::Config {
         rom,
         overlays: vec![
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay"),
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay")
         ],
         state: root,
         console: Arc::new(move |data| sink.lock().unwrap().extend_from_slice(data)),

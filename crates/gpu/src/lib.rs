@@ -616,6 +616,11 @@ impl idorid_kernel::virtgpu::GpuBackend for KernelBackend {
             (self.renderer.api.create_blob)(ctx, id, &args, std::ptr::null(), 0, std::ptr::null())
         };
         renderer_result(ret)?;
+        // Attaching allows gfxstream to detach an ASG on resource destruction;
+        // its cleanup worker retains the ring until the ASG consumer exits.
+        unsafe {
+            (self.renderer.api.ctx_attach_resource)(ctx as i32, id as i32);
+        }
         Ok(Arc::new(KernelResource {
             renderer: self.renderer.clone(),
             id,

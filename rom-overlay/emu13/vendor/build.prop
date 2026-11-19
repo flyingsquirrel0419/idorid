@@ -86,3 +86,6 @@ debug.stagefright.c2inputsurface=-1
 debug.stagefright.ccodec=4
 ro.incremental.enable=yes
 # end of file
+
+# Match the emulator display density advertised by qemu-props.
+ro.sf.lcd_density=440

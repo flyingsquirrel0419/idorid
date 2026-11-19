@@ -114,7 +114,12 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         }
     }
     // Per-lane integer/FP conversions, with optional fixed-point scaling.
-    let cvt_key = insn & 0x9fbf_fc00;
+    // Scalar forms (01U11110...) fold onto the vector keys by clearing bit 28.
+    let cvt_key = if insn & 0x5000_0000 == 0x5000_0000 {
+        insn & 0x8fbf_fc00
+    } else {
+        insn & 0x9fbf_fc00
+    };
     let immediate = insn & 0x8f80_0400 == 0x0f00_0400 && matches!((insn >> 11) & 31, 28 | 31);
     let conversion = match cvt_key {
         0x0e21_d800 => Some(2u32),
