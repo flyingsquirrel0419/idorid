@@ -51,6 +51,10 @@ struct State {
     procs: HashMap<u64, Proc>,
     nodes: HashMap<u64, BinderNode>,
     next_node: u64,
+    /// (proc, tid) of the thread whose transaction is being translated: like
+    /// Linux, BR_INCREFS/BR_ACQUIRE for its own nodes go to that thread's
+    /// todo so they are handled while its Parcel still pins the objects.
+    ref_hint: Option<(u64, i32)>,
 }
 #[derive(Default)]
 struct Proc {
@@ -418,9 +422,11 @@ impl Binder {
                 let oneway = get32(b, 20) & 1 != 0;
                 let from = (!reply && !oneway).then_some((self.id, tid, get32(b, 20) & 0x10 != 0));
                 let mut refs = Vec::new();
-                if let Err(error) =
-                    translate_objects(&mut s, self.id, to, &mut data, &offsets, &mut refs)
-                {
+                s.ref_hint = Some((self.id, tid));
+                let translated =
+                    translate_objects(&mut s, self.id, to, &mut data, &offsets, &mut refs);
+                s.ref_hint = None;
+                if let Err(error) = translated {
                     for (handle, weak) in refs {
                         let _ = change_ref(&mut s, to, handle, bc(if weak { 7 } else { 6 }, 4));
                     }
@@ -962,11 +968,31 @@ fn notify_ref_change(s: &mut State, node_id: u64, old: (u64, u64)) -> Result<()>
             let mut bytes = br(number, 16).to_le_bytes().to_vec();
             bytes.extend_from_slice(&ptr.to_le_bytes());
             bytes.extend_from_slice(&cookie.to_le_bytes());
+            let hint = s
+                .ref_hint
+                .filter(|(p, _)| *p == owner && (number == 7 || number == 8));
             if let Some(owner) = s.procs.get_mut(&owner) {
-                owner.todo.push_back(Work::Bytes(bytes));
+                match hint {
+                    Some((_, tid)) => owner
+                        .threads
+                        .entry(tid)
+                        .or_default()
+                        .todo
+                        .push_back(Work::Bytes(bytes)),
+                    None => owner.todo.push_back(Work::Bytes(bytes)),
+                }
                 if let Some(wq) = &owner.wq {
                     wq.notify();
                 }
+            }
+        }
+    }
+    // A node nobody references any more is forgotten once its owner has been
+    // told (BR_DECREFS); a later object at the same address is a new node.
+    if old.1 > 0 && new_total == 0 && s.manager_node != Some(node_id) {
+        if let Some(n) = s.nodes.get(&node_id) {
+            if !n.async_active && n.async_todo.is_empty() {
+                s.nodes.remove(&node_id);
             }
         }
     }
