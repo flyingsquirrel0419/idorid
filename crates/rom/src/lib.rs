@@ -36,8 +36,15 @@ pub fn install(zip_path: &Path, out: &Path, work: &Path, progress: Progress) -> 
                 "system" | "" => continue, // system_other (odex) or unnamed
                 n => tmp_out.join(n.trim_start_matches('/')),
             };
-            let prefix = if dir == tmp_out { String::new() } else { format!("/{}", name.trim_start_matches('/')) };
-            progress(&format!("unpacking {}", if prefix.is_empty() { "system" } else { &prefix }));
+            let prefix = if dir == tmp_out {
+                String::new()
+            } else {
+                format!("/{}", name.trim_start_matches('/'))
+            };
+            progress(&format!(
+                "unpacking {}",
+                if prefix.is_empty() { "system" } else { &prefix }
+            ));
             fs::create_dir_all(&dir)?;
             let mut fs4 = ext4::Ext4::open(File::open(&img)?, off)?;
             extract_tree(&mut fs4, &dir, &prefix, &mut labels)?;
@@ -111,7 +118,11 @@ fn gpt_partition(f: &mut File, name: &str) -> io::Result<Option<u64>> {
         f.seek(SeekFrom::Start(lba * 512 + i * size))?;
         f.read_exact(&mut e)?;
         let first = u64::from_le_bytes(e[32..40].try_into().unwrap());
-        let n: Vec<u16> = e[56..128].chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|&c| c != 0).collect();
+        let n: Vec<u16> = e[56..128]
+            .chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .take_while(|&c| c != 0)
+            .collect();
         if String::from_utf16_lossy(&n) == name {
             return Ok(Some(first * 512));
         }
@@ -132,7 +143,11 @@ fn scan_ext4(f: &mut File, start: u64) -> io::Result<Vec<(u64, String)>> {
         if sb[0x38] == 0x53 && sb[0x39] == 0xef {
             let blocks = u32::from_le_bytes(sb[4..8].try_into().unwrap()) as u64;
             let bs = 1024u64 << u32::from_le_bytes(sb[24..28].try_into().unwrap());
-            let name: Vec<u8> = sb[0x78..0x88].iter().copied().take_while(|&b| b != 0).collect();
+            let name: Vec<u8> = sb[0x78..0x88]
+                .iter()
+                .copied()
+                .take_while(|&b| b != 0)
+                .collect();
             let name = String::from_utf8_lossy(&name).into_owned();
             out.push((off, name));
             off += (blocks * bs).div_ceil(1 << 20) << 20;
@@ -146,17 +161,34 @@ fn scan_ext4(f: &mut File, start: u64) -> io::Result<Vec<(u64, String)>> {
 fn selinux_label(fs4: &mut ext4::Ext4<File>, ino: &ext4::Inode) -> Option<String> {
     let x = fs4.xattrs(ino).ok()?;
     let v = x.get("security.selinux")?;
-    Some(String::from_utf8_lossy(v).trim_end_matches('\0').to_string())
+    Some(
+        String::from_utf8_lossy(v)
+            .trim_end_matches('\0')
+            .to_string(),
+    )
 }
 
 /// Writes the tree rooted at inode 2 into `dir`; `prefix` is the guest path
 /// of `dir` ("" for /).
-fn extract_tree(fs4: &mut ext4::Ext4<File>, dir: &Path, prefix: &str, labels: &mut BTreeMap<String, String>) -> io::Result<()> {
+fn extract_tree(
+    fs4: &mut ext4::Ext4<File>,
+    dir: &Path,
+    prefix: &str,
+    labels: &mut BTreeMap<String, String>,
+) -> io::Result<()> {
     let root = fs4.inode(2)?;
     if let Some(l) = selinux_label(fs4, &root) {
-        labels.insert(if prefix.is_empty() { "/".into() } else { prefix.into() }, l);
+        labels.insert(
+            if prefix.is_empty() {
+                "/".into()
+            } else {
+                prefix.into()
+            },
+            l,
+        );
     }
-    let mut stack: Vec<(ext4::Inode, PathBuf, String)> = vec![(root, dir.to_path_buf(), prefix.to_string())];
+    let mut stack: Vec<(ext4::Inode, PathBuf, String)> =
+        vec![(root, dir.to_path_buf(), prefix.to_string())];
     while let Some((ino, host, guest)) = stack.pop() {
         for (name, num) in fs4.read_dir(&ino)? {
             if host == dir && name == "lost+found" {
@@ -241,11 +273,23 @@ fn apex_manifest(b: &[u8]) -> (String, u64) {
     (name, version)
 }
 
-fn activate_apexes(root: &Path, work: &Path, labels: &mut BTreeMap<String, String>, progress: Progress) -> io::Result<()> {
+fn activate_apexes(
+    root: &Path,
+    work: &Path,
+    labels: &mut BTreeMap<String, String>,
+    progress: Progress,
+) -> io::Result<()> {
     let apex_root = root.join("apex");
     fs::create_dir_all(&apex_root)?;
-    for dir in ["system/apex", "system_ext/apex", "vendor/apex", "product/apex"] {
-        let Ok(rd) = fs::read_dir(root.join(dir)) else { continue };
+    for dir in [
+        "system/apex",
+        "system_ext/apex",
+        "vendor/apex",
+        "product/apex",
+    ] {
+        let Ok(rd) = fs::read_dir(root.join(dir)) else {
+            continue;
+        };
         let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
         files.sort();
         for f in files {
@@ -258,12 +302,20 @@ fn activate_apexes(root: &Path, work: &Path, labels: &mut BTreeMap<String, Strin
                 let mut z = zip::ZipArchive::new(File::open(&f)?).map_err(io::Error::other)?;
                 if ext == "capex" {
                     let inner = work.join("original_apex");
-                    io::copy(&mut z.by_name("original_apex").map_err(io::Error::other)?, &mut File::create(&inner)?)?;
+                    io::copy(
+                        &mut z.by_name("original_apex").map_err(io::Error::other)?,
+                        &mut File::create(&inner)?,
+                    )?;
                     z = zip::ZipArchive::new(File::open(&inner)?).map_err(io::Error::other)?;
                 }
-                io::copy(&mut z.by_name("apex_payload.img").map_err(io::Error::other)?, &mut File::create(&payload)?)?;
+                io::copy(
+                    &mut z.by_name("apex_payload.img").map_err(io::Error::other)?,
+                    &mut File::create(&payload)?,
+                )?;
                 let mut m = Vec::new();
-                z.by_name("apex_manifest.pb").map_err(io::Error::other)?.read_to_end(&mut m)?;
+                z.by_name("apex_manifest.pb")
+                    .map_err(io::Error::other)?
+                    .read_to_end(&mut m)?;
                 m
             };
             let (name, _) = apex_manifest(&manifest);
@@ -286,7 +338,12 @@ fn activate_apexes(root: &Path, work: &Path, labels: &mut BTreeMap<String, Strin
 fn write_apex_info_list(root: &Path) -> io::Result<()> {
     let apex = root.join("apex");
     let mut sources = Vec::new();
-    for d in ["system/apex", "system_ext/apex", "vendor/apex", "product/apex"] {
+    for d in [
+        "system/apex",
+        "system_ext/apex",
+        "vendor/apex",
+        "product/apex",
+    ] {
         if let Ok(rd) = fs::read_dir(root.join(d)) {
             for e in rd.flatten() {
                 sources.push(format!("/{d}/{}", e.file_name().to_string_lossy()));
@@ -294,16 +351,26 @@ fn write_apex_info_list(root: &Path) -> io::Result<()> {
         }
     }
     let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<apex-info-list>\n");
-    let mut names: Vec<_> = fs::read_dir(&apex)?.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let mut names: Vec<_> = fs::read_dir(&apex)?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
     names.sort();
     for name in names {
-        let Ok(m) = fs::read(apex.join(&name).join("apex_manifest.pb")) else { continue };
+        let Ok(m) = fs::read(apex.join(&name).join("apex_manifest.pb")) else {
+            continue;
+        };
         let (_, version) = apex_manifest(&m);
         let path = sources
             .iter()
             .find(|p| {
                 let base = p.rsplit('/').next().unwrap_or("");
-                base.starts_with(&format!("{name}.")) || base.starts_with(&format!("{}.", name.replace("com.android.", "com.google.android.")))
+                base.starts_with(&format!("{name}."))
+                    || base.starts_with(&format!(
+                        "{}.",
+                        name.replace("com.android.", "com.google.android.")
+                    ))
             })
             .cloned()
             .unwrap_or_else(|| format!("/system/apex/{name}.apex"));

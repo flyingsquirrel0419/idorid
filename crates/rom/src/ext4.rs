@@ -65,7 +65,11 @@ impl<R: Read + Seek> Ext4<R> {
         let first_data = u32le(&sb, 20) as u64;
         let incompat = u32le(&sb, 0x60);
         let is64 = incompat & 0x80 != 0;
-        let desc_size = if is64 { u16le(&sb, 0xfe).max(32) as u64 } else { 32 };
+        let desc_size = if is64 {
+            u16le(&sb, 0xfe).max(32) as u64
+        } else {
+            32
+        };
         let groups = (blocks - first_data).div_ceil(blocks_per_group) as u32;
         Ok(Ext4 {
             dev,
@@ -98,13 +102,19 @@ impl<R: Read + Seek> Ext4<R> {
         }
         let idx = (ino - 1) % self.inodes_per_group;
         let mut d = vec![0u8; self.desc_size as usize];
-        self.read_at(self.gdt_block * self.block_size + group as u64 * self.desc_size, &mut d)?;
+        self.read_at(
+            self.gdt_block * self.block_size + group as u64 * self.desc_size,
+            &mut d,
+        )?;
         let mut table = u32le(&d, 8) as u64;
         if self.is64 && d.len() >= 0x2c {
             table |= (u32le(&d, 0x28) as u64) << 32;
         }
         let mut raw = vec![0u8; self.inode_size as usize];
-        self.read_at(table * self.block_size + idx as u64 * self.inode_size, &mut raw)?;
+        self.read_at(
+            table * self.block_size + idx as u64 * self.inode_size,
+            &mut raw,
+        )?;
         let mut block = [0u8; 60];
         block.copy_from_slice(&raw[40..100]);
         Ok(Inode {
@@ -116,7 +126,11 @@ impl<R: Read + Seek> Ext4<R> {
             flags: u32le(&raw, 32),
             block,
             file_acl: u32le(&raw, 104) as u64 | (u16le(&raw, 118) as u64) << 32,
-            extra: if raw.len() > 128 { raw[128..].to_vec() } else { Vec::new() },
+            extra: if raw.len() > 128 {
+                raw[128..].to_vec()
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -138,7 +152,14 @@ impl<R: Read + Seek> Ext4<R> {
         Ok(out)
     }
 
-    fn walk_indirect(&mut self, blk: u64, depth: usize, logical: &mut u64, per: u64, out: &mut Vec<(u64, u64, u64)>) -> io::Result<()> {
+    fn walk_indirect(
+        &mut self,
+        blk: u64,
+        depth: usize,
+        logical: &mut u64,
+        per: u64,
+        out: &mut Vec<(u64, u64, u64)>,
+    ) -> io::Result<()> {
         if depth == 0 {
             if blk != 0 {
                 out.push((*logical, blk, 1));
@@ -157,7 +178,12 @@ impl<R: Read + Seek> Ext4<R> {
         Ok(())
     }
 
-    fn walk_extent_node(&mut self, node: &[u8], out: &mut Vec<(u64, u64, u64)>, level: u32) -> io::Result<()> {
+    fn walk_extent_node(
+        &mut self,
+        node: &[u8],
+        out: &mut Vec<(u64, u64, u64)>,
+        level: u32,
+    ) -> io::Result<()> {
         if u16le(node, 0) != 0xF30A || level > 8 {
             return Err(invalid("bad extent header"));
         }
@@ -246,7 +272,11 @@ impl<R: Read + Seek> Ext4<R> {
     pub fn read_dir(&mut self, ino: &Inode) -> io::Result<Vec<(String, u32)>> {
         let data = self.read_file(ino)?;
         let mut out = Vec::new();
-        let bs = if ino.flags & INLINE_DATA_FL != 0 { data.len().max(1) } else { self.block_size as usize };
+        let bs = if ino.flags & INLINE_DATA_FL != 0 {
+            data.len().max(1)
+        } else {
+            self.block_size as usize
+        };
         let mut blk = 0;
         // Inline directories start with a 4-byte parent inode number.
         if ino.flags & INLINE_DATA_FL != 0 {
@@ -259,7 +289,10 @@ impl<R: Read + Seek> Ext4<R> {
                     break;
                 }
                 if inode != 0 && off + 8 + nlen <= data.len() {
-                    out.push((String::from_utf8_lossy(&data[off + 8..off + 8 + nlen]).into_owned(), inode));
+                    out.push((
+                        String::from_utf8_lossy(&data[off + 8..off + 8 + nlen]).into_owned(),
+                        inode,
+                    ));
                 }
                 off += rec;
             }
@@ -276,7 +309,8 @@ impl<R: Read + Seek> Ext4<R> {
                     break;
                 }
                 if inode != 0 && nlen > 0 && off + 8 + nlen <= block.len() {
-                    let name = String::from_utf8_lossy(&block[off + 8..off + 8 + nlen]).into_owned();
+                    let name =
+                        String::from_utf8_lossy(&block[off + 8..off + 8 + nlen]).into_owned();
                     if name != "." && name != ".." {
                         out.push((name, inode));
                     }
@@ -346,7 +380,11 @@ fn parse_entries(entries: &[u8], values: &[u8], out: &mut HashMap<String, Vec<u8
         if off + 16 + name_len > entries.len() {
             break;
         }
-        let name = format!("{}{}", prefix(index), String::from_utf8_lossy(&entries[off + 16..off + 16 + name_len]));
+        let name = format!(
+            "{}{}",
+            prefix(index),
+            String::from_utf8_lossy(&entries[off + 16..off + 16 + name_len])
+        );
         if voff + vsize <= values.len() {
             out.insert(name, values[voff..voff + vsize].to_vec());
         }

@@ -34,6 +34,7 @@ final class LibraryController: UITableViewController, UIDocumentPickerDelegate {
         super.viewDidLoad()
         title = "Library"
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(pick))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Android", style: .plain, target: self, action: #selector(openNeo))
         try? fm.createDirectory(at: apps, withIntermediateDirectories: true)
         seedExamples()
         if let data = try? Data(contentsOf: cacheURL), let cache = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] { info = cache }
@@ -52,6 +53,10 @@ final class LibraryController: UITableViewController, UIDocumentPickerDelegate {
         }
         UserDefaults.standard.set(true, forKey: key)
     }
+    @objc private func openNeo() {
+        navigationController?.pushViewController(NeoController(), animated: true)
+    }
+
     @objc private func pick() {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(filenameExtension: "apk") ?? .data], asCopy: true)
         picker.delegate = self

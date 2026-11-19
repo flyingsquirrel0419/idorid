@@ -149,6 +149,8 @@ name = "idorid-ffi"
 version = "0.1.0"
 dependencies = [
  "idorid-apk",
+ "idorid-kernel",
+ "idorid-rom",
  "idorid-vm",
  "serde_json",
 ]

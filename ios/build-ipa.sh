@@ -24,6 +24,8 @@ xcrun -sdk "$sdk" swiftc -sdk "$(xcrun --sdk "$sdk" --show-sdk-path)" \
   -framework UIKit -framework UniformTypeIdentifiers -framework Security -framework SystemConfiguration -lc++ \
   ios/Sources/*.swift -o "$app/idorid"
 cp ios/Info.plist "$app/Info.plist"
+# idorid neo: our patches layered over the Android ROM.
+cp -Rp rom-overlay "$app/rom-overlay"
 mkdir -p "$app/Examples"
 cp examples/*.apk "$app/Examples/" 2>/dev/null || true
 cp tests/fixtures/sample.apk "$app/Examples/Hello Sample.apk" 2>/dev/null || true

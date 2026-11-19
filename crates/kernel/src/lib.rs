@@ -61,6 +61,18 @@ pub const HWCAP: u64 = (1 << 0) // FP
     | (1 << 20); // ASIMDDP
 pub const HWCAP2: u64 = 0;
 
+/// Console sink of the most recently created kernel, for diagnostics that
+/// have no kernel reference (logcat mirroring).
+static CONSOLE: parking_lot::Mutex<Option<Arc<dyn Fn(&[u8]) + Send + Sync>>> =
+    parking_lot::Mutex::new(None);
+
+pub fn console_line(s: &str) {
+    match CONSOLE.lock().clone() {
+        Some(c) => c(s.as_bytes()),
+        None => eprint!("{s}"),
+    }
+}
+
 pub struct Config {
     pub rom: std::path::PathBuf,
     pub state: std::path::PathBuf,
@@ -97,6 +109,7 @@ impl Kernel {
     pub fn new(cfg: Config) -> Arc<Kernel> {
         time::init();
         *syscall::ROM_PREFIX.lock() = cfg.rom.clone();
+        *CONSOLE.lock() = Some(cfg.console.clone());
         let console = fd::Console::new(cfg.console.clone());
         let mut vfs = vfs::Vfs::new(&cfg.rom, &cfg.state);
         vfs.overlays = cfg.overlays.clone();
@@ -243,7 +256,10 @@ impl Kernel {
         dev("/dev/goldfish_pipe", Arc::new(goldfish::open));
         for (path, minor) in [("/dev/dri/renderD128", 128), ("/dev/dri/card0", 0)] {
             let backend = self.gpu_backend.clone();
-            dev(path, Arc::new(move || virtgpu::VirtGpu::open(backend.clone(), minor)));
+            dev(
+                path,
+                Arc::new(move || virtgpu::VirtGpu::open(backend.clone(), minor)),
+            );
         }
         // tracing: writes to trace_marker are discarded.
         for p in [

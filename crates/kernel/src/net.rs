@@ -1089,8 +1089,8 @@ fn mirror_log(data: &[u8], pid: i32) {
         .get(prio as usize)
         .copied()
         .unwrap_or('?');
-    eprintln!(
-        "[log] {p} {pid} {tag}: {}",
+    crate::console_line(&format!(
+        "[log] {p} {pid} {tag}: {}\n",
         msg.trim_end_matches(['\0', '\n'])
-    );
+    ));
 }
