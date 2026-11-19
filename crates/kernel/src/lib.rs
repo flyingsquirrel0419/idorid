@@ -311,6 +311,7 @@ impl Kernel {
             wake: sync::WaitQueue::new(),
             name: Mutex::new(String::new()),
             saved_mask: Mutex::new(None),
+            fds: Mutex::new(None),
         });
         proc_.threads.lock().push(thread.clone());
         self.procs.lock().insert(pid, proc_.clone());

@@ -236,7 +236,7 @@ fn dir_of(ctx: &Ctx, dirfd: i64, path: &str) -> Result<String> {
     if path.starts_with('/') || dirfd == AT_FDCWD || dirfd as i32 == AT_FDCWD as i32 {
         return Ok(ctx.process.cwd.lock().clone());
     }
-    let f = ctx.process.fds().lock().get(dirfd as i32)?;
+    let f = ctx.fds().lock().get(dirfd as i32)?;
     Ok(f.path.clone())
 }
 
@@ -469,7 +469,7 @@ fn sleep_until(ctx: &Ctx, deadline: Instant) -> i64 {
 }
 
 fn file(ctx: &Ctx, fd: u64) -> Result<Arc<OpenFile>> {
-    ctx.process.fds().lock().get(fd as i32)
+    ctx.fds().lock().get(fd as i32)
 }
 
 fn do_read(f: &OpenFile, buf: &mut [u8], at: Option<u64>) -> Result<usize> {
@@ -546,16 +546,16 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
                     flags & !(O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC),
                     gpath,
                 );
-                let fds = ctx.process.fds();
+                let fds = ctx.fds();
                 let n = fds.lock().insert(f, flags & O_CLOEXEC != 0)?;
                 Ok(n as i64)
             })();
             ret(r)
         }
-        57 => ret(ctx.process.fds().lock().close(a[0] as i32).map(|_| 0i64)),
+        57 => ret(ctx.fds().lock().close(a[0] as i32).map(|_| 0i64)),
         436 => {
             // close_range
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             let mut t = fds.lock();
             let keys: Vec<i32> = t
                 .fds
@@ -994,7 +994,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             }
         }
         23 => ret((|| -> Result<i64> {
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             let mut t = fds.lock();
             let f = t.get(a[0] as i32)?;
             Ok(t.insert(f, false)? as i64)
@@ -1003,7 +1003,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             if a[0] == a[1] {
                 return Err(EINVAL);
             }
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             let mut t = fds.lock();
             let f = t.get(a[0] as i32)?;
             t.insert_at(a[1] as i32, f, a[2] as u32 & O_CLOEXEC != 0);
@@ -1013,7 +1013,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
         59 => ret((|| -> Result<i64> {
             let (r, w) = pipe();
             let flags = a[1] as u32;
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             let mut t = fds.lock();
             let rf = t.insert(
                 OpenFile::new(r, flags & O_NONBLOCK, "pipe:"),
@@ -1081,7 +1081,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
                 let name = cstr(ctx, a[0])?;
                 let node = Arc::new(crate::syscall::MemFd::new(&name));
                 let f = OpenFile::new(node, O_RDWR, format!("/memfd:{name}"));
-                Ok(ctx.process.fds().lock().insert(f, a[1] & 1 != 0)? as i64)
+                Ok(ctx.fds().lock().insert(f, a[1] & 1 != 0)? as i64)
             })())
         }
         71 => {
@@ -1810,7 +1810,7 @@ fn readlink(ctx: &Ctx, dirfd: i64, path: &str) -> Result<String> {
 }
 
 fn sys_fcntl(ctx: &Ctx, a: [u64; 6]) -> i64 {
-    let fds = ctx.process.fds();
+    let fds = ctx.fds();
     let mut t = fds.lock();
     let fd = a[0] as i32;
     let Some(entry) = t.fds.get(&fd).cloned() else {
@@ -2006,10 +2006,11 @@ pub fn do_execve(
     *p.mm.write() = image.mm;
     // Unshare fd table and signal handlers; close O_CLOEXEC fds.
     {
-        let old = p.fds();
+        let old = ctx.fds();
         let mut copy = old.lock().clone();
         copy.close_on_exec();
         *p.fds.write() = Arc::new(Mutex::new(copy));
+        *ctx.thread.fds.lock() = None;
         let acts = p.sigactions();
         let mut a = *acts.lock();
         for x in a.iter_mut() {
@@ -2158,6 +2159,11 @@ fn sys_clone(
             wake: crate::sync::WaitQueue::new(),
             name: Mutex::new(ctx.thread.name.lock().clone()),
             saved_mask: Mutex::new(None),
+            fds: Mutex::new(if flags & CLONE_FILES != 0 {
+                ctx.thread.fds.lock().clone()
+            } else {
+                Some(Arc::new(Mutex::new(ctx.fds().lock().clone())))
+            }),
         });
         p.threads.lock().push(t.clone());
         (p.clone(), t)
@@ -2168,9 +2174,9 @@ fn sys_clone(
             Arc::new(ctx.mm.fork())
         };
         let fds = if flags & CLONE_FILES != 0 {
-            p.fds()
+            ctx.fds()
         } else {
-            Arc::new(Mutex::new(p.fds().lock().clone()))
+            Arc::new(Mutex::new(ctx.fds().lock().clone()))
         };
         let acts = if flags & CLONE_SIGHAND != 0 {
             p.sigactions()
@@ -2235,6 +2241,7 @@ fn sys_clone(
             wake: crate::sync::WaitQueue::new(),
             name: Mutex::new(ctx.thread.name.lock().clone()),
             saved_mask: Mutex::new(None),
+            fds: Mutex::new(None),
         });
         np.threads.lock().push(t.clone());
         k.procs.lock().insert(tid, np.clone());
@@ -2870,7 +2877,7 @@ fn sys_ppoll(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         let res = loop {
             let mut count = 0;
             let mut queues = Vec::new();
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             for i in 0..n {
                 let fd = i32::from_le_bytes(b[i * 8..i * 8 + 4].try_into().unwrap());
                 let events = u16::from_le_bytes(b[i * 8 + 4..i * 8 + 6].try_into().unwrap()) as u32;

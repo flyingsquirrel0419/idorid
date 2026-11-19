@@ -500,7 +500,7 @@ fn my_cred(ctx: &Ctx) -> Cred {
 }
 
 fn sock(ctx: &Ctx, fd: u64) -> Result<(Arc<OpenFile>, Arc<UnixSocket>)> {
-    let f = ctx.process.fds().lock().get(fd as i32)?;
+    let f = ctx.fds().lock().get(fd as i32)?;
     if f.node.as_any().downcast_ref::<UnixSocket>().is_none() {
         if f.node.as_any().downcast_ref::<NetlinkSocket>().is_some() {
             return Err(EOPNOTSUPP);
@@ -636,7 +636,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
             let ty = a[1] as u32 & 0xf;
             let flags = a[1] as u32;
             let (x, y) = UnixSocket::pair(ty, my_cred(ctx));
-            let fds = ctx.process.fds();
+            let fds = ctx.fds();
             let mut t = fds.lock();
             let fx = t.insert(
                 OpenFile::new(x, O_RDWR | (flags & SOCK_NONBLOCK), "socket:"),
@@ -657,7 +657,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         }
         200 => {
             // bind
-            let f = ctx.process.fds().lock().get(a[0] as i32)?;
+            let f = ctx.fds().lock().get(a[0] as i32)?;
             if f.node.as_any().is::<NetlinkSocket>() {
                 return Ok(0);
             }
@@ -741,7 +741,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         }
         203 => {
             // connect
-            let f = ctx.process.fds().lock().get(a[0] as i32)?;
+            let f = ctx.fds().lock().get(a[0] as i32)?;
             if f.node.as_any().is::<NetlinkSocket>() {
                 return Ok(0);
             }
@@ -804,7 +804,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         }
         208 => {
             // setsockopt(fd, level, opt, val, len)
-            let f = ctx.process.fds().lock().get(a[0] as i32)?;
+            let f = ctx.fds().lock().get(a[0] as i32)?;
             let Some(s) = f.node.as_any().downcast_ref::<UnixSocket>() else {
                 return Ok(0);
             };
@@ -824,7 +824,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         }
         209 => {
             // getsockopt(fd, level, opt, val, lenp)
-            let f = ctx.process.fds().lock().get(a[0] as i32)?;
+            let f = ctx.fds().lock().get(a[0] as i32)?;
             let s = f.node.as_any().downcast_ref::<UnixSocket>();
             let put = |v: &[u8]| -> Result<i64> {
                 let cap = ctx.mm.read_u32(a[4]).ok_or(EFAULT)? as usize;
@@ -877,7 +877,7 @@ pub fn syscall(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
 }
 
 fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
-    let f = ctx.process.fds().lock().get(a[0] as i32)?;
+    let f = ctx.fds().lock().get(a[0] as i32)?;
     if f.node.as_any().is::<NetlinkSocket>() {
         return Ok(a[2] as i64);
     }
@@ -924,7 +924,7 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
             }
             if level as u64 == SOL_SOCKET && ty == SCM_RIGHTS {
                 let n = (clen - 16) / 4;
-                let table = ctx.process.fds();
+                let table = ctx.fds();
                 let t = table.lock();
                 for i in 0..n {
                     let fd = ctx.mm.read_u32(control + off + 16 + i * 4).ok_or(EFAULT)? as i32;
@@ -955,7 +955,7 @@ fn send(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
 }
 
 fn recv(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
-    let f = ctx.process.fds().lock().get(a[0] as i32)?;
+    let f = ctx.fds().lock().get(a[0] as i32)?;
     if let Some(n) = f.node.as_any().downcast_ref::<NetlinkSocket>() {
         let mut b = vec![0u8; 16];
         return n
@@ -1011,7 +1011,7 @@ fn recv(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
     let mut cmsg = Vec::new();
     let mut mflags = 0u32;
     if !fds.is_empty() {
-        let table = ctx.process.fds();
+        let table = ctx.fds();
         let mut t = table.lock();
         let mut nums = Vec::new();
         for f in fds {

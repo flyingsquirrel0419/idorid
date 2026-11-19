@@ -203,6 +203,9 @@ pub struct Thread {
     pub name: Mutex<String>,
     /// Saved mask to restore after a sigsuspend/ppoll-style temporary mask.
     pub saved_mask: Mutex<Option<u64>>,
+    /// Private fd table of a thread created with CLONE_THREAD but without
+    /// CLONE_FILES (bionic's debuggerd pseudothread relies on this).
+    pub fds: Mutex<Option<Arc<Mutex<FdTable>>>>,
 }
 
 impl Thread {
@@ -267,6 +270,14 @@ const FPSIMD_SIZE: u32 = 528;
 const FRAME_SIZE: u64 = UC_OFF + UC_MCONTEXT + SC_RESERVED + 4096;
 
 impl Ctx {
+    /// The calling thread's file descriptor table.
+    pub fn fds(&self) -> Arc<Mutex<FdTable>> {
+        if let Some(t) = self.thread.fds.lock().as_ref() {
+            return t.clone();
+        }
+        self.process.fds()
+    }
+
     pub fn signal_pending(&self) -> bool {
         let blocked = self.thread.sigmask.load(Ordering::Relaxed);
         self.process.dying.load(Ordering::Relaxed)

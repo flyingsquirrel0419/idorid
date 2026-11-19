@@ -595,7 +595,7 @@ impl Binder {
             }
             drop(s);
             if !allocation.fd_array.is_empty() {
-                let fds = ctx.process.fds();
+                let fds = ctx.fds();
                 let mut table = fds.lock();
                 for fd in allocation.fd_array {
                     let _ = table.close(fd);
@@ -717,7 +717,7 @@ impl Binder {
                         base + off + extra_start + target as u64,
                     );
                 }
-                let table = ctx.process.fds();
+                let table = ctx.fds();
                 let mut table = table.lock();
                 let mut installed = Vec::new();
                 let mut fd_array = Vec::new();
@@ -837,7 +837,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
                     .push((extra_start + base + parent_off, start));
             }
         } else if typ == TYPE_FD {
-            let file = ctx.process.fds().lock().get(get32(data, off + 8) as i32)?;
+            let file = ctx.fds().lock().get(get32(data, off + 8) as i32)?;
             prepared.fds.push((off + 8, file, false));
         } else if typ == TYPE_FDA {
             let count = usize::try_from(get64(data, off + 8)).map_err(|_| EINVAL)?;
@@ -853,7 +853,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
             {
                 return Err(EINVAL);
             }
-            let table = ctx.process.fds();
+            let table = ctx.fds();
             let table = table.lock();
             for i in 0..count {
                 let pos = base + parent_off + i * 4;
@@ -1169,7 +1169,18 @@ impl Node for Binder {
     fn ioctl(&self, ctx: &Ctx, cmd: u32, arg: u64) -> Result<i64> {
         self.bind(ctx)?;
         match cmd {
-            WRITE_READ => self.write_read(ctx, arg),
+            WRITE_READ => {
+                let r = self.write_read(ctx, arg);
+                if let Err(e) = r {
+                    if std::env::var_os("IDORID_BINDER_TRACE").is_some() || e == ENOTTY {
+                        eprintln!(
+                            "binder pid={} tid={} write_read error {e}",
+                            ctx.process.pid, ctx.thread.tid
+                        );
+                    }
+                }
+                r
+            }
             VERSION => ctx.mm.write_u32(arg, 8).then_some(0).ok_or(EFAULT),
             SET_MAX_THREADS => {
                 let n = ctx.mm.read_u32(arg).ok_or(EFAULT)?;
