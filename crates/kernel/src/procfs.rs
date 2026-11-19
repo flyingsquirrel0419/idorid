@@ -249,7 +249,7 @@ impl SyntheticFs for ProcFs {
             "keys" | "kallsyms" | "modules" | "swaps" | "interrupts" | "softirqs" | "partitions" | "diskstats" | "bootconfig" | "kmsg" => return file(""),
             "version" => return file("Linux version 5.15.110-idorid (idorid@neo) #1 SMP PREEMPT\n"),
             "loadavg" => return file("0.00 0.00 0.00 1/64 1\n"),
-            "cmdline" => return file("androidboot.hardware=ranchu androidboot.selinux=permissive androidboot.qemu=1 qemu=1 androidboot.hardware.gltransport=pipe\n"),
+            "cmdline" => return file("androidboot.hardware=ranchu androidboot.selinux=permissive androidboot.qemu=1 qemu=1 androidboot.hardwareegl=angle androidboot.hardware.gltransport=virtio-gpu-asg\n"),
             "filesystems" => return file("nodev\tsysfs\nnodev\ttmpfs\nnodev\tproc\nnodev\tselinuxfs\n\text4\nnodev\tfuse\n"),
             "mounts" => return file(mounts()),
             "sys" => return self.sys(&parts[1..]),

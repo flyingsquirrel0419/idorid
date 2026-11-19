@@ -11,6 +11,7 @@ use std::collections::HashMap;
 pub struct Pages {
     map: RefCell<HashMap<u64, (Box<[u8; 4096]>, u8)>>,
     gen: Cell<u64>,
+    aot: Cell<Option<(u64, idorid_a64::mem::AotUnit)>>,
 }
 
 const R: u8 = 1;
@@ -22,6 +23,7 @@ impl Pages {
         Pages {
             map: RefCell::new(HashMap::new()),
             gen: Cell::new(0),
+            aot: Cell::new(None),
         }
     }
     pub fn map(&self, addr: u64, len: u64, prot: u8) {
@@ -35,6 +37,10 @@ impl Pages {
                 .1 = prot;
             p += PAGE_SIZE;
         }
+        self.gen.set(self.gen.get() + 1);
+    }
+    pub fn set_aot(&self, page: u64, unit: idorid_a64::mem::AotUnit) {
+        self.aot.set(Some((page, unit)));
         self.gen.set(self.gen.get() + 1);
     }
     fn unmap(&self, addr: u64, len: u64) {
@@ -81,6 +87,11 @@ impl AddressSpace for Pages {
     fn generation(&self) -> u64 {
         self.gen.get()
     }
+    fn aot_unit(&self, page: u64) -> Option<idorid_a64::mem::AotUnit> {
+        self.aot
+            .get()
+            .and_then(|(p, unit)| (p == page).then_some(unit))
+    }
 }
 
 pub struct Outcome {
@@ -103,6 +114,15 @@ fn u64le(b: &[u8], o: usize) -> u64 {
 /// stdout and exit status. Panics with a diagnostic on CPU exits the mini
 /// kernel cannot handle.
 pub fn run_elf(elf: &[u8], args: &[&str], max_insns: u64) -> Outcome {
+    run_elf_with_aot(elf, args, max_insns, |_| None)
+}
+
+pub fn run_elf_with_aot(
+    elf: &[u8],
+    args: &[&str],
+    max_insns: u64,
+    lookup: impl Fn(u64) -> Option<idorid_a64::mem::AotUnit>,
+) -> Outcome {
     assert_eq!(&elf[..4], b"\x7fELF");
     assert_eq!(u16le(elf, 18), 183, "not aarch64");
     let mem = Pages::new();
@@ -137,6 +157,17 @@ pub fn run_elf(elf: &[u8], args: &[&str], max_insns: u64) -> Outcome {
             mem.write(vaddr, &elf[off..off + filesz]);
         }
         mem.map(vaddr, memsz, prot);
+        if prot & X != 0 && (vaddr & (PAGE_SIZE - 1)) == (off as u64 & (PAGE_SIZE - 1)) {
+            let mut offset = (off as u64) & !(PAGE_SIZE - 1);
+            let mut addr = vaddr & !(PAGE_SIZE - 1);
+            while addr < vaddr + memsz {
+                if let Some(unit) = lookup(offset) {
+                    mem.set_aot(addr >> 12, unit);
+                }
+                addr += PAGE_SIZE;
+                offset += PAGE_SIZE;
+            }
+        }
         brk = brk.max((vaddr + memsz + PAGE_SIZE - 1) & !(PAGE_SIZE - 1));
     }
     // Stack.

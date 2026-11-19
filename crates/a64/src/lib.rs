@@ -16,6 +16,7 @@
 mod access;
 mod base_atomic;
 mod base_cache;
+mod base_crypto;
 pub mod cpu;
 mod exec;
 mod fp;
@@ -29,3 +30,8 @@ mod simd_crypto;
 
 pub use cpu::{Cpu, Exit};
 pub use mem::{Access, AddressSpace, Tlb, PAGE_SHIFT, PAGE_SIZE};
+
+/// Entry points used by generated ahead-of-time page units.
+pub mod aot {
+    pub use crate::exec::{aot_simd_simple, aot_step};
+}

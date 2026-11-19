@@ -1,5 +1,0 @@
-#!/system/bin/sh
-# idorid neo: there is no eBPF in the in-process kernel. Report success so
-# boot continues (traffic accounting/firewall features are unavailable).
-setprop bpf.progs_loaded 1
-exit 0

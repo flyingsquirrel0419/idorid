@@ -11,6 +11,15 @@ pub enum Access {
     Exec,
 }
 
+/// A compiled executable page and the FNV-1a fingerprint of its guest bytes.
+#[derive(Clone, Copy)]
+pub struct AotUnit {
+    pub fingerprint: u64,
+    /// Exact source bytes, used to reject stale or changed executable mappings.
+    pub bytes: &'static [u8; 4096],
+    pub execute: fn(&mut crate::Cpu, &dyn AddressSpace, u64) -> Option<crate::Exit>,
+}
+
 /// A guest address space, implemented by the embedder.
 ///
 /// `translate` returns a host pointer to the start of the 4 KiB host buffer
@@ -28,6 +37,10 @@ pub trait AddressSpace {
     /// Monotonic counter, bumped whenever an existing translation may become
     /// invalid.
     fn generation(&self) -> u64;
+    /// Optional compiled page, keyed by guest page number.
+    fn aot_unit(&self, _page: u64) -> Option<AotUnit> {
+        None
+    }
 }
 
 const TLB_SIZE: usize = 256;
@@ -36,11 +49,13 @@ const TLB_SIZE: usize = 256;
 struct Entry {
     tag: u64, // page number + 1 (0 = empty)
     host: *mut u8,
+    aot: Option<AotUnit>,
 }
 
 const EMPTY: Entry = Entry {
     tag: 0,
     host: core::ptr::null_mut(),
+    aot: None,
 };
 
 /// Direct-mapped translation cache (separate read / write / exec arrays).
@@ -124,10 +139,33 @@ impl Tlb {
             Access::Write => &mut self.write,
             Access::Exec => &mut self.exec,
         };
+        let aot = if access == Access::Exec {
+            mem.aot_unit(page).filter(|unit| {
+                let mut h = 0xcbf29ce484222325u64;
+                for offset in 0..PAGE_SIZE as usize {
+                    h = (h ^ unsafe { *host.add(offset) } as u64).wrapping_mul(0x100000001b3);
+                }
+                h == unit.fingerprint
+                    && unsafe { core::slice::from_raw_parts(host, PAGE_SIZE as usize) }
+                        == unit.bytes
+            })
+        } else {
+            None
+        };
         arr[idx] = Entry {
             tag: page + 1,
             host,
+            aot,
         };
         Some(unsafe { host.add((addr & PAGE_MASK) as usize) })
+    }
+    /// Compiled unit for an executable address; validates mapping and contents.
+    pub(crate) fn executable_unit<A: AddressSpace + ?Sized>(
+        &mut self,
+        mem: &A,
+        addr: u64,
+    ) -> Option<AotUnit> {
+        self.lookup(mem, addr, Access::Exec)?;
+        self.exec[((addr >> PAGE_SHIFT) as usize) & (TLB_SIZE - 1)].aot
     }
 }

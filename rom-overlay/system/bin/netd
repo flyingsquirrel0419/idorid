@@ -1,4 +1,0 @@
-#!/system/bin/sh
-# idorid neo TEMPORARY: real netd needs eBPF maps, which the kernel does not
-# emulate yet. Stay alive so init doesn't restart zygote.
-exec sleep 2147483647

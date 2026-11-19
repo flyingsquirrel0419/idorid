@@ -16,3 +16,4 @@ idorid-apk = { path = "../apk" }
 idorid-ffi = { path = "../ffi" }
 idorid-kernel = { path = "../kernel" }
 serde_json = "1"
+idorid-gpu = { path = "../gpu" }

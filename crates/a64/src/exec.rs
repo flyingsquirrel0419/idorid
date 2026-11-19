@@ -1137,6 +1137,56 @@ fn execute_cached<A: AddressSpace + ?Sized>(
         _ => execute(c, m, i),
     }
 }
+/// Execute the AES or vector Boolean forms recognized by the AOT generator.
+#[inline(always)]
+pub fn aot_simd_simple(cpu: &mut Cpu, insn: u32) {
+    let d = (insn & 31) as usize;
+    let n = ((insn >> 5) & 31) as usize;
+    let m = ((insn >> 16) & 31) as usize;
+    let key = insn & 0xffff_fc00;
+    if matches!(key, 0x4e28_4800 | 0x4e28_5800 | 0x4e28_6800 | 0x4e28_7800) {
+        if let Some(value) = crate::base_crypto::aes(key, cpu.v[d], cpu.v[n]) {
+            cpu.v[d] = value;
+        } else {
+            assert!(crate::simd_crypto::exec(cpu, insn));
+        }
+    } else {
+        let value = if insn & 0x2000_0000 != 0 {
+            cpu.v[n] ^ cpu.v[m]
+        } else {
+            cpu.v[n] | cpu.v[m]
+        };
+        cpu.v[d] = if insn & (1 << 30) != 0 {
+            value
+        } else {
+            value as u64 as u128
+        };
+    }
+    cpu.pc = cpu.pc.wrapping_add(4);
+    cpu.retired += 1;
+}
+
+/// Execute a compile-time A64 word from an AOT unit. The caller must have
+/// validated the executable page and must enforce the instruction budget.
+#[inline(always)]
+pub fn aot_step(cpu: &mut Cpu, mem: &dyn AddressSpace, insn: u32) -> Option<Exit> {
+    let pc = cpu.pc;
+    let op = crate::base_cache::Op::decode(insn);
+    match execute_cached(cpu, mem, op) {
+        Ok(exit) => {
+            cpu.retired += 1;
+            match exit {
+                None => {
+                    cpu.pc = pc.wrapping_add(4);
+                    None
+                }
+                Some(Exit::Budget) => None,
+                Some(e) => Some(e),
+            }
+        }
+        Err(e) => Some(e),
+    }
+}
 pub(crate) fn run<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64) -> Exit {
     // Retain the original executor for comparative profiling and debugging.
     static DISABLE_CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -1172,6 +1222,16 @@ fn run_uncached<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64) -
         }
     }
     Exit::Budget
+}
+// Erases a possibly-unsized AddressSpace without changing Cpu::run's API.
+struct AotMemory<'a, A: AddressSpace + ?Sized>(&'a A);
+impl<A: AddressSpace + ?Sized> AddressSpace for AotMemory<'_, A> {
+    fn translate(&self, page: u64, access: Access) -> Option<*mut u8> {
+        self.0.translate(page, access)
+    }
+    fn generation(&self) -> u64 {
+        self.0.generation()
+    }
 }
 fn run_cached<A: AddressSpace + ?Sized>(
     cpu: &mut Cpu,
@@ -1211,6 +1271,20 @@ fn run_cached<A: AddressSpace + ?Sized>(
                 Ok(b) => b,
                 Err(e) => return e,
             };
+            if let Some(unit) = block.aot {
+                static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                static REPORTED: std::sync::Once = std::sync::Once::new();
+                if *TRACE.get_or_init(|| std::env::var_os("IDORID_AOT_TRACE").is_some()) {
+                    REPORTED.call_once(|| eprintln!("AOT unit entered at {:#x}", cpu.pc));
+                }
+                cpu.retired = retired;
+                let exit = (unit.execute)(cpu, &AotMemory(mem), end - retired);
+                retired = cpu.retired;
+                if let Some(exit) = exit {
+                    return exit;
+                }
+                continue;
+            }
             for op in &block.ops {
                 if retired >= end {
                     return Exit::Budget;

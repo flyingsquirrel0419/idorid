@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 idorid-a64 = { path = "../a64" }
+idorid-aot = { path = "../aot" }
 parking_lot = "0.12"
 libc = "0.2"
 regex = { version = "1.9", default-features = false, features = ["std", "perf", "unicode-perl"] }

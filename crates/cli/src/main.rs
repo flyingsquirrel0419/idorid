@@ -389,6 +389,12 @@ fn neo(args: &[String]) -> ExitCode {
             let _ = o.flush();
         }),
     });
+    if let Some(path) = std::env::var_os("IDORID_GFXSTREAM") {
+        match idorid_gpu::KernelBackend::load(std::path::Path::new(&path)) {
+            Ok(backend) => k.set_gpu_backend(Some(backend)),
+            Err(err) => { eprintln!("gfxstream initialization failed: {err}"); return ExitCode::FAILURE; }
+        }
+    }
     let argv: Vec<&str> = prog.iter().map(|s| s.as_str()).collect();
     let envp: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
     let t0 = std::time::Instant::now();
@@ -400,6 +406,7 @@ fn neo(args: &[String]) -> ExitCode {
         }
     };
     k.wait_idle(None);
+    k.set_gpu_backend(None);
     if let Some(p) = &k.profile {
         p.dump();
     }

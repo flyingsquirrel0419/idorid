@@ -194,6 +194,10 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
     }
     let key = insn & 0xffff_fc00;
     if matches!(key, 0x4e28_4800 | 0x4e28_5800 | 0x4e28_6800 | 0x4e28_7800) {
+        if let Some(value) = crate::base_crypto::aes(key, cpu.v[d], cpu.v[n]) {
+            cpu.v[d] = value;
+            return true;
+        }
         let source = cpu.v[n].to_le_bytes();
         let mut out = [0u8; 16];
         if key == 0x4e28_4800 || key == 0x4e28_5800 {

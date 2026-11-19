@@ -220,6 +220,7 @@ pub fn name(nr: u64) -> String {
         261 => "prlimit64",
         278 => "getrandom",
         279 => "memfd_create",
+        280 => "bpf",
         291 => "statx",
         _ => return format!("sys_{nr}"),
     };
@@ -1325,7 +1326,7 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
         30 => 0,       // ioprio_set
         31 => 4 << 13, // ioprio_get: best-effort class
         277 => 0,      // seccomp: accept filters, never enforce
-        280 => ENOSYS, // bpf
+        280 => crate::bpf::syscall(ctx, a[0], a[1], a[2]),
         117 => EPERM,  // ptrace
         116 => 0,      // syslog
         142 => {
@@ -1937,6 +1938,8 @@ fn sys_mmap(ctx: &Ctx, a: [u64; 6]) -> i64 {
                     Arc::from(f.path.as_str()),
                 )
             }
+        } else if f.node.mmap_requires_shared_mem() {
+            return EINVAL;
         } else {
             if flags & MAP_SHARED != 0 && (prot & PROT_WRITE != 0 || f.writable() || is_rw_host(&f))
             {
@@ -1983,7 +1986,8 @@ pub fn do_execve(
     let comm_src = argv.first().cloned().unwrap_or_default();
     let image = crate::elf::load(crate::elf::ExecArgs {
         file: node,
-        path: &gpath,
+        // Scripts see the name they were invoked by (symlink personalities).
+        path: if path.starts_with('/') { path } else { &gpath },
         argv: argv.clone(),
         envp,
         open_interp: &open_interp,

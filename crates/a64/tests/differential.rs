@@ -246,8 +246,8 @@ fn benchmark_mips() {
     let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("a64-bench");
     std::fs::create_dir_all(&out).unwrap();
     for name in [
-        "base_sieve",
-        "base_sha256",
+        "base_benchsieve",
+        "base_benchsha",
         "base_libc",
         "base_benchsort",
         "base_benchmem",
@@ -319,4 +319,110 @@ fn cached_blocks_budget_fault_and_generation() {
         }
     );
     assert_eq!(c.retired, 3);
+}
+
+#[test]
+fn aot_unit_budget_fault_and_fingerprint() {
+    use idorid_a64::{Access, AddressSpace, Cpu, Exit};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn unit(c: &mut Cpu, m: &dyn AddressSpace, budget: u64) -> Option<Exit> {
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        let end = c.retired.saturating_add(budget);
+        let base = c.pc & !4095;
+        while c.retired < end && c.pc & !4095 == base {
+            let word = match c.pc & 4095 {
+                0 => 0x91000400,
+                4 => 0xf9400041,
+                _ => return None,
+            };
+            if let Some(e) = idorid_a64::aot::aot_step(c, m, word) {
+                return Some(e);
+            }
+        }
+        (c.retired >= end).then_some(Exit::Budget)
+    }
+    let mem = support::Pages::new();
+    mem.map(0x1000, 0x1000, 7);
+    mem.write(0x1000, &0x91000400u32.to_le_bytes());
+    mem.write(0x1004, &0xf9400041u32.to_le_bytes());
+    const fn page_bytes() -> [u8; 4096] {
+        let mut page = [0; 4096];
+        let a = 0x91000400u32.to_le_bytes();
+        let b = 0xf9400041u32.to_le_bytes();
+        let mut i = 0;
+        while i < 4 {
+            page[i] = a[i];
+            page[i + 4] = b[i];
+            i += 1;
+        }
+        page
+    }
+    static CODE: [u8; 4096] = page_bytes();
+    let data = mem.read(0x1000, 4096).unwrap();
+    let hash = data.iter().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ *b as u64).wrapping_mul(0x100000001b3)
+    });
+    mem.set_aot(
+        1,
+        idorid_a64::mem::AotUnit {
+            fingerprint: hash,
+            bytes: &CODE,
+            execute: unit,
+        },
+    );
+    let mut c = Cpu::new();
+    c.pc = 0x1000;
+    c.x[2] = 0x5000;
+    assert_eq!(c.run(&mem, 1), Exit::Budget);
+    assert_eq!(c.pc, 0x1004);
+    assert_eq!(c.retired, 1);
+    assert_eq!(c.x[0], 1);
+    assert_eq!(
+        c.run(&mem, 1),
+        Exit::Fault {
+            addr: 0x5000,
+            access: Access::Read
+        }
+    );
+    assert_eq!(c.retired, 1);
+    assert_eq!(c.pc, 0x1004);
+    assert!(CALLS.load(Ordering::Relaxed) >= 2);
+    let previous = CALLS.load(Ordering::Relaxed);
+    // A changed page and generation fall back to the interpreter.
+    mem.write(0x1000, &0x91001400u32.to_le_bytes());
+    mem.map(0x1000, 0x1000, 7);
+    c.pc = 0x1000;
+    assert_eq!(c.run(&mem, 1), Exit::Budget);
+    assert_eq!(c.x[0], 6);
+    assert_eq!(CALLS.load(Ordering::Relaxed), previous);
+}
+
+#[test]
+fn aot_simple_simd_matches_interpreter() {
+    use idorid_a64::{Cpu, Exit};
+    let mem = support::Pages::new();
+    mem.map(0x1000, 4096, 7);
+    for word in [
+        0x4e284a00u32,
+        0x4e286800,
+        0x4e285a00,
+        0x4e287800,
+        0x6e271c42,
+        0x4ea61cc0,
+    ] {
+        mem.write(0x1000, &word.to_le_bytes());
+        mem.map(0x1000, 4096, 7);
+        let mut a = Cpu::new();
+        a.pc = 0x1000;
+        for i in 0..32 {
+            a.v[i] = 0x7766554433221100ffeeddccbbaa9988u128.rotate_left(i as u32);
+        }
+        let mut b = a.clone();
+        assert_eq!(a.run(&mem, 1), Exit::Budget);
+        idorid_a64::aot::aot_simd_simple(&mut b, word);
+        assert_eq!(a.v, b.v, "instruction {word:08x}");
+        assert_eq!(a.pc, b.pc);
+        assert_eq!(a.retired, b.retired);
+    }
 }

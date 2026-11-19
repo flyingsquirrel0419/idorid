@@ -26,38 +26,39 @@ pub fn page_down(x: u64) -> u64 {
 }
 
 /// One 4 KiB page of guest memory.
-pub struct Page(UnsafeCell<[u8; 4096]>);
+pub struct Page(PageStorage);
+enum PageStorage {
+    Owned(Box<UnsafeCell<[u8; 4096]>>),
+    // The owner keeps the renderer mapping alive until the last guest page
+    // translation disappears, including translations surviving munmap/fork.
+    External { ptr: *mut u8, _owner: Arc<dyn Send + Sync> },
+}
 // Guest memory is plain bytes; concurrent access is the guest's business.
 unsafe impl Sync for Page {}
 unsafe impl Send for Page {}
 
 impl Page {
     pub fn zeroed() -> Arc<Page> {
-        // Avoid a 4 KiB stack temporary.
-        unsafe {
-            let layout = std::alloc::Layout::new::<Page>();
-            let p = std::alloc::alloc_zeroed(layout) as *mut Page;
-            if p.is_null() {
-                std::alloc::handle_alloc_error(layout);
-            }
-            Arc::from(Box::from_raw(p))
-        }
+        Arc::new(Page(PageStorage::Owned(Box::new(UnsafeCell::new([0; 4096])))))
     }
     pub fn copy_of(other: &Page) -> Arc<Page> {
         let p = Page::zeroed();
-        unsafe { *p.0.get() = *other.0.get() };
+        p.bytes_mut().copy_from_slice(other.bytes());
         p
     }
     #[inline]
     pub fn ptr(&self) -> *mut u8 {
-        self.0.get() as *mut u8
+        match &self.0 {
+            PageStorage::Owned(data) => data.get().cast(),
+            PageStorage::External { ptr, .. } => *ptr,
+        }
     }
     pub fn bytes(&self) -> &[u8; 4096] {
-        unsafe { &*self.0.get() }
+        unsafe { &*self.ptr().cast::<[u8; 4096]>() }
     }
     #[allow(clippy::mut_from_ref)]
     pub fn bytes_mut(&self) -> &mut [u8; 4096] {
-        unsafe { &mut *self.0.get() }
+        unsafe { &mut *self.ptr().cast::<[u8; 4096]>() }
     }
 }
 
@@ -65,24 +66,48 @@ impl Page {
 /// shared file mappings of writable files).
 pub struct SharedMem {
     pub pages: Mutex<Vec<Option<Arc<Page>>>>,
+    fixed: bool,
 }
 
 impl SharedMem {
     pub fn new(len: u64) -> Arc<SharedMem> {
         Arc::new(SharedMem {
             pages: Mutex::new(vec![None; (page_up(len) / PAGE) as usize]),
+            fixed: false,
         })
+    }
+    /// Alias renderer-owned writable memory. The owner must retain the mapping
+    /// and keep it accessible until every cloned page has been dropped.
+    ///
+    /// # Safety
+    /// `ptr..ptr+len` must remain valid, writable, and exclusively managed as
+    /// guest shared memory for the lifetime of `owner`. The mapping must be a
+    /// whole number of guest pages, and `ptr` must be non-null.
+    pub unsafe fn from_external(ptr: *mut u8, len: u64, owner: Arc<dyn Send + Sync>) -> Option<Arc<Self>> {
+        if ptr.is_null() || len == 0 || len & PAGE_MASK != 0 || len > isize::MAX as u64 {
+            return None;
+        }
+        let mut pages = Vec::with_capacity((len / PAGE) as usize);
+        for i in 0..len / PAGE {
+            pages.push(Some(Arc::new(Page(PageStorage::External {
+                ptr: ptr.add((i * PAGE) as usize),
+                _owner: owner.clone(),
+            }))));
+        }
+        Some(Arc::new(Self { pages: Mutex::new(pages), fixed: true }))
     }
     pub fn page(&self, idx: u64) -> Option<Arc<Page>> {
         let mut v = self.pages.lock();
         let i = idx as usize;
         if i >= v.len() {
+            if self.fixed { return None; }
             // ashmem/memfd may grow (ftruncate) after mapping; be lenient.
             v.resize(i + 1, None);
         }
         Some(v[i].get_or_insert_with(Page::zeroed).clone())
     }
     pub fn resize(&self, len: u64) {
+        if self.fixed { return; }
         self.pages
             .lock()
             .resize((page_up(len) / PAGE) as usize, None);
@@ -685,8 +710,57 @@ impl AddressSpace for Mm {
     fn translate(&self, page: u64, access: Access) -> Option<*mut u8> {
         self.page_for(page, access == Access::Write, Some(access))
     }
+    fn aot_unit(&self, page: u64) -> Option<idorid_a64::mem::AotUnit> {
+        if !idorid_aot::HAS_UNITS {
+            return None;
+        }
+        let addr = page.checked_mul(PAGE)?;
+        let vma = self.vma_at(addr)?;
+        if vma.prot & PROT_EXEC == 0 || vma.prot & PROT_WRITE != 0 {
+            return None;
+        }
+        if let Backing::File { offset, .. } = vma.backing {
+            let file_offset = offset.checked_add(addr.checked_sub(vma.start)?)?;
+            // Optional filter makes it possible to measure individual units.
+            static ONLY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+            if let Some(selected) = *ONLY.get_or_init(|| {
+                std::env::var("IDORID_AOT_ONLY_OFFSET")
+                    .ok()
+                    .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            }) {
+                if selected != file_offset {
+                    return None;
+                }
+            }
+            idorid_aot::lookup(&vma.name, file_offset)
+        } else {
+            None
+        }
+    }
     #[inline]
     fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+}
+
+#[cfg(test)]
+mod external_page_tests {
+    use super::*;
+    struct Allocation(Box<[u8; 8192]>);
+    #[test]
+    fn pages_alias_external_memory_and_retain_owner() {
+        let mut allocation = Arc::new(Allocation(Box::new([0; 8192])));
+        let ptr = Arc::get_mut(&mut allocation).unwrap().0.as_mut_ptr();
+        let weak = Arc::downgrade(&allocation);
+        let owner: Arc<dyn Send + Sync> = allocation;
+        let memory = unsafe { SharedMem::from_external(ptr, 8192, owner).unwrap() };
+        let second = memory.page(1).unwrap();
+        second.bytes_mut()[7] = 0x5a;
+        assert_eq!(unsafe { *ptr.add(4103) }, 0x5a);
+        assert!(memory.page(2).is_none());
+        drop(memory);
+        assert!(weak.upgrade().is_some());
+        drop(second);
+        assert!(weak.upgrade().is_none());
     }
 }

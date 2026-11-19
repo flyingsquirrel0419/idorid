@@ -19,6 +19,7 @@
 
 pub mod ashmem;
 pub mod binder;
+pub mod bpf;
 pub mod elf;
 pub mod errno;
 pub mod fd;
@@ -36,6 +37,7 @@ pub mod syscall;
 pub mod task;
 pub mod time;
 pub mod vfs;
+pub mod virtgpu;
 
 use errno::*;
 use parking_lot::Mutex;
@@ -70,7 +72,9 @@ pub struct Config {
 }
 
 pub struct Kernel {
+    gpu_backend: virtgpu::BackendSlot,
     pub vfs: vfs::Vfs,
+    pub bpf: bpf::BpfState,
     pub procs: Mutex<HashMap<i32, Arc<Process>>>,
     pub threads: Mutex<HashMap<i32, Arc<Thread>>>,
     next_pid: AtomicI32,
@@ -104,7 +108,9 @@ impl Kernel {
         vfs.add_mount("/dev/pts", vfs::MountKind::Synthetic(Arc::new(pty::PtsFs)));
         vfs.add_mount("/proc", vfs::MountKind::Synthetic(Arc::new(procfs::ProcFs)));
         let k = Arc::new(Kernel {
+            gpu_backend: Arc::new(parking_lot::RwLock::new(None)),
             vfs,
+            bpf: bpf::BpfState::default(),
             procs: Mutex::new(HashMap::new()),
             threads: Mutex::new(HashMap::new()),
             next_pid: AtomicI32::new(1),
@@ -135,6 +141,10 @@ impl Kernel {
     /// (system/core/init/first_stage_init.cpp): /dev skeleton and mount points.
     fn first_stage(&self, state: &Path) {
         for (f, v) in [
+            ("sys/devices/system/cpu/possible", "0\n"),
+            ("sys/devices/system/cpu/online", "0\n"),
+            ("sys/devices/system/cpu/present", "0\n"),
+            ("sys/devices/system/cpu/cpu0/online", "1\n"),
             ("sys/power/state", "freeze mem\n"),
             ("sys/power/wakeup_count", "0\n"),
             ("sys/power/suspend_stats/success", "0\n"),
@@ -155,6 +165,7 @@ impl Kernel {
             "sys/fs/fuse/connections",
             "sys/fs/bpf",
             "sys/kernel/debug/tracing",
+            "dev/dri",
             "dev/socket",
             "dev/pts",
             "dev/dm-user",
@@ -171,6 +182,11 @@ impl Kernel {
             let _ = std::fs::create_dir_all(state.join(d));
         }
         let _ = std::fs::write(state.join("sys/fs/selinux/.idorid-disabled"), b"");
+    }
+
+    /// Install or remove the host GPU provider. Existing open nodes see changes.
+    pub fn set_gpu_backend(&self, backend: Option<Arc<dyn virtgpu::GpuBackend>>) {
+        *self.gpu_backend.write() = backend;
     }
 
     fn install_devices(self: &Arc<Self>) {
@@ -225,6 +241,10 @@ impl Kernel {
         }
         dev("/dev/ptmx", Arc::new(pty::open_master));
         dev("/dev/goldfish_pipe", Arc::new(goldfish::open));
+        for (path, minor) in [("/dev/dri/renderD128", 128), ("/dev/dri/card0", 0)] {
+            let backend = self.gpu_backend.clone();
+            dev(path, Arc::new(move || virtgpu::VirtGpu::open(backend.clone(), minor)));
+        }
         // tracing: writes to trace_marker are discarded.
         for p in [
             "/sys/kernel/tracing/trace_marker",

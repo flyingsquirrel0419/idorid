@@ -1,0 +1,11 @@
+[package]
+name = "idorid-aot"
+description = "Build-time AArch64 ROM page translation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+idorid-a64 = { path = "../a64" }

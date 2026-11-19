@@ -13,7 +13,8 @@ pub(crate) struct Op {
     pub imm: u64,
 }
 impl Op {
-    fn decode(i: u32) -> Self {
+    #[inline(always)]
+    pub(crate) fn decode(i: u32) -> Self {
         let mut o = Self {
             raw: i,
             rd: (i & 31) as u8,
@@ -63,6 +64,7 @@ pub(crate) struct Block {
     pub pc: u64,
     pub ops: Vec<Op>,
     pub successor: Option<(u64, usize)>,
+    pub aot: Option<crate::mem::AotUnit>,
 }
 #[derive(Default)]
 pub(crate) struct BlockCache {
@@ -112,6 +114,18 @@ impl BlockCache {
                     addr: pc,
                     access: Access::Exec,
                 })?;
+            static DISABLE_AOT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if !*DISABLE_AOT.get_or_init(|| std::env::var_os("IDORID_DISABLE_AOT").is_some()) {
+                if let Some(unit) = c.tlb.executable_unit(mem, pc) {
+                    self.slots[index] = Some(Block {
+                        pc,
+                        ops: Vec::new(),
+                        successor: None,
+                        aot: Some(unit),
+                    });
+                    return Ok(self.slots[index].as_ref().unwrap());
+                }
+            }
             let limit = ((PAGE_SIZE - (pc & (PAGE_SIZE - 1))) / 4).min(32) as usize;
             // Misaligned PCs are fetched by the ordinary path, which preserves its faults.
             let mut ops = Vec::with_capacity(limit.max(1));
@@ -129,7 +143,12 @@ impl BlockCache {
                 let target = branch_pc.wrapping_add(op.imm);
                 (target, ((target >> 2) as usize) & (self.slots.len() - 1))
             });
-            self.slots[index] = Some(Block { pc, ops, successor });
+            self.slots[index] = Some(Block {
+                pc,
+                ops,
+                successor,
+                aot: None,
+            });
         }
         Ok(self.slots[index].as_ref().unwrap())
     }
