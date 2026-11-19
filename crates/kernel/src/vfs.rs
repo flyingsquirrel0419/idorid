@@ -108,7 +108,9 @@ pub trait Node: Send + Sync + 'static {
         self.shared_mem().map(|mem| (mem, offset))
     }
     /// Devices can reject offsets which do not resolve to shared memory.
-    fn mmap_requires_shared_mem(&self) -> bool { false }
+    fn mmap_requires_shared_mem(&self) -> bool {
+        false
+    }
     /// Called after this node was mmapped at `addr` (MAP_SHARED of
     /// `shared_mem()`); binder uses it to learn its buffer address.
     fn mmapped(&self, _ctx: &crate::task::Ctx, _addr: u64, _len: u64, _offset: u64) -> Result<()> {

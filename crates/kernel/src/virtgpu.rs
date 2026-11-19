@@ -499,12 +499,19 @@ impl Node for VirtGpu {
                     let mut state = self.state.lock();
                     if state.context.is_none() {
                         let id = NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed);
-                        backend.context_create(id, 0).inspect_err(|e| eprintln!("virtgpu: implicit context_create failed {e}"))?;
+                        backend.context_create(id, 0).inspect_err(|e| {
+                            eprintln!("virtgpu: implicit context_create failed {e}")
+                        })?;
                         state.context = Some((backend.clone(), id));
                     }
                     state.context.clone().unwrap()
                 };
-                backend.submit(context, &mut bytes).inspect_err(|e| eprintln!("virtgpu: submit({} bytes, flags {flags:#x}) failed {e}", bytes.len()))?;
+                backend.submit(context, &mut bytes).inspect_err(|e| {
+                    eprintln!(
+                        "virtgpu: submit({} bytes, flags {flags:#x}) failed {e}",
+                        bytes.len()
+                    )
+                })?;
                 let fence = Arc::new(GpuFence::default());
                 backend.fence(context, ring, fence.clone())?;
                 self.state.lock().last_fence = Some(fence.clone());

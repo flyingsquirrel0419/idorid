@@ -31,7 +31,10 @@ enum PageStorage {
     Owned(Box<UnsafeCell<[u8; 4096]>>),
     // The owner keeps the renderer mapping alive until the last guest page
     // translation disappears, including translations surviving munmap/fork.
-    External { ptr: *mut u8, _owner: Arc<dyn Send + Sync> },
+    External {
+        ptr: *mut u8,
+        _owner: Arc<dyn Send + Sync>,
+    },
 }
 // Guest memory is plain bytes; concurrent access is the guest's business.
 unsafe impl Sync for Page {}
@@ -39,7 +42,9 @@ unsafe impl Send for Page {}
 
 impl Page {
     pub fn zeroed() -> Arc<Page> {
-        Arc::new(Page(PageStorage::Owned(Box::new(UnsafeCell::new([0; 4096])))))
+        Arc::new(Page(PageStorage::Owned(Box::new(UnsafeCell::new(
+            [0; 4096],
+        )))))
     }
     pub fn copy_of(other: &Page) -> Arc<Page> {
         let p = Page::zeroed();
@@ -83,7 +88,11 @@ impl SharedMem {
     /// `ptr..ptr+len` must remain valid, writable, and exclusively managed as
     /// guest shared memory for the lifetime of `owner`. The mapping must be a
     /// whole number of guest pages, and `ptr` must be non-null.
-    pub unsafe fn from_external(ptr: *mut u8, len: u64, owner: Arc<dyn Send + Sync>) -> Option<Arc<Self>> {
+    pub unsafe fn from_external(
+        ptr: *mut u8,
+        len: u64,
+        owner: Arc<dyn Send + Sync>,
+    ) -> Option<Arc<Self>> {
         if ptr.is_null() || len == 0 || len & PAGE_MASK != 0 || len > isize::MAX as u64 {
             return None;
         }
@@ -94,20 +103,27 @@ impl SharedMem {
                 _owner: owner.clone(),
             }))));
         }
-        Some(Arc::new(Self { pages: Mutex::new(pages), fixed: true }))
+        Some(Arc::new(Self {
+            pages: Mutex::new(pages),
+            fixed: true,
+        }))
     }
     pub fn page(&self, idx: u64) -> Option<Arc<Page>> {
         let mut v = self.pages.lock();
         let i = idx as usize;
         if i >= v.len() {
-            if self.fixed { return None; }
+            if self.fixed {
+                return None;
+            }
             // ashmem/memfd may grow (ftruncate) after mapping; be lenient.
             v.resize(i + 1, None);
         }
         Some(v[i].get_or_insert_with(Page::zeroed).clone())
     }
     pub fn resize(&self, len: u64) {
-        if self.fixed { return; }
+        if self.fixed {
+            return;
+        }
         self.pages
             .lock()
             .resize((page_up(len) / PAGE) as usize, None);

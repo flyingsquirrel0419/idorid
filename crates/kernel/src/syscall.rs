@@ -1327,8 +1327,8 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
         31 => 4 << 13, // ioprio_get: best-effort class
         277 => 0,      // seccomp: accept filters, never enforce
         280 => crate::bpf::syscall(ctx, a[0], a[1], a[2]),
-        117 => EPERM,  // ptrace
-        116 => 0,      // syslog
+        117 => EPERM, // ptrace
+        116 => 0,     // syslog
         142 => {
             // reboot
             ctx.kernel.log("[kernel] reboot requested");
