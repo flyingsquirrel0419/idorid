@@ -1,4 +1,10 @@
 //! Scalar FP operations. Unimplemented encodings are left for the caller to reject.
+//!
+//! Host arithmetic currently uses the host's default round-to-nearest mode.
+//! FPCR-directed rounding is implemented for integer and precision conversions
+//! and FRINT, but not for general arithmetic, square root, or fused operations.
+//! Arithmetic exception reporting is incomplete, especially for fused operations.
+
 use crate::cpu::Cpu;
 
 pub(crate) fn input(cpu: &mut Cpu, bits: u64, double: bool) -> u64 {

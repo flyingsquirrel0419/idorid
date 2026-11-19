@@ -102,6 +102,11 @@ pub trait Node: Send + Sync + 'static {
     fn shared_mem(&self) -> Option<Arc<crate::mm::SharedMem>> {
         None
     }
+    /// Resolve a file offset to a shared object and an offset within it.
+    /// Devices with multiple independently mapped objects can override this.
+    fn shared_mem_at(&self, offset: u64, _len: u64) -> Option<(Arc<crate::mm::SharedMem>, u64)> {
+        self.shared_mem().map(|mem| (mem, offset))
+    }
     /// Called after this node was mmapped at `addr` (MAP_SHARED of
     /// `shared_mem()`); binder uses it to learn its buffer address.
     fn mmapped(&self, _ctx: &crate::task::Ctx, _addr: u64, _len: u64, _offset: u64) -> Result<()> {

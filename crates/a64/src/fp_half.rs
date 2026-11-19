@@ -11,7 +11,7 @@ fn round(v: f64, mode: u64, negative: bool) -> f64 {
 }
 
 pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
-    convert(cpu,insn,false)
+    convert(cpu, insn, false)
 }
 
 fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
@@ -101,7 +101,12 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
             sign16 | 0x7c00 | (((frac >> if is64 { 42 } else { 13 }) as u16) | 0x200)
         }
     } else if exp == denorm {
-        if alternate {cpu.fpsr |= 1; sign16 | 0x7fff} else {sign16 | 0x7c00}
+        if alternate {
+            cpu.fpsr |= 1;
+            sign16 | 0x7fff
+        } else {
+            sign16 | 0x7c00
+        }
     } else {
         let mut value = if is64 {
             f64::from_bits(raw)
@@ -117,7 +122,8 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
         if abs == 0.0 {
             sign16
         } else if alternate && abs >= 131072.0 {
-            cpu.fpsr |= 1; sign16 | 0x7fff
+            cpu.fpsr |= 1;
+            sign16 | 0x7fff
         } else if !alternate && abs >= 65536.0 {
             cpu.fpsr |= (1 << 2) | (1 << 4);
             let infinity = mode == 0 || (mode == 1 && sign == 0) || (mode == 2 && sign != 0);
@@ -133,10 +139,18 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
             } else {
                 (((e + 15) as u16) << 10) + (rounded as u16 - 1024)
             };
-            if alternate && result >= 0x8000 {cpu.fpsr |= 1;cpu.v[d]=(sign16 | 0x7fff) as u128;return true;}
-            if inexact {cpu.fpsr |= 1 << 4;}
-            if !alternate && result >= 0x7c00 {cpu.fpsr |= (1 << 2) | (1 << 4);}
-            if result < 0x400 && inexact {
+            if alternate && result >= 0x8000 {
+                cpu.fpsr |= 1;
+                cpu.v[d] = (sign16 | 0x7fff) as u128;
+                return true;
+            }
+            if inexact {
+                cpu.fpsr |= 1 << 4;
+            }
+            if !alternate && result >= 0x7c00 {
+                cpu.fpsr |= (1 << 2) | (1 << 4);
+            }
+            if e < -14 && inexact {
                 cpu.fpsr |= 1 << 3;
             }
             if result != 0 && result < 0x400 && arithmetic && cpu.fpcr & (1 << 19) != 0 {

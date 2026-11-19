@@ -204,6 +204,14 @@ impl Binder {
             };
             if let Some(work) = work {
                 let out = self.receive(ctx, work)?;
+                if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                    eprintln!(
+                        "binder pid={} tid={} read {:#x}",
+                        ctx.process.pid,
+                        ctx.thread.tid,
+                        get32(&out, 0)
+                    );
+                }
                 if out.len() as u64 > rs - rc {
                     return Err(ENOSPC);
                 }
@@ -284,12 +292,29 @@ impl Binder {
                     return Ok(());
                 }
             };
+            if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                eprintln!(
+                    "binder pid={} tid={} {} handle={} code={} flags={:#x} data={} offsets={} sg={}",
+                    ctx.process.pid,
+                    tid,
+                    if reply { "reply" } else { "call" },
+                    get32(b, 0),
+                    get32(b, 16),
+                    get32(b, 20),
+                    data_len,
+                    offsets_len,
+                    sg_size
+                );
+            }
             let sender_secctx = ctx.process.secctx.lock().as_bytes().to_vec();
             let mut header = [0u8; 64];
             header.copy_from_slice(&b[..64]);
             put32(&mut header, 24, ctx.process.pid as u32);
             put32(&mut header, 28, ctx.process.uid.load(Ordering::Relaxed));
             let mut s = self.context.state.lock();
+            if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                eprintln!("binder pid={} acquired context", ctx.process.pid);
+            }
             let target = if reply {
                 s.procs
                     .get_mut(&self.id)
@@ -318,6 +343,9 @@ impl Binder {
             let target_node = target_node_id
                 .and_then(|id| s.nodes.get(&id))
                 .map(|n| (n.ptr, n.cookie, n.flags));
+            if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                eprintln!("binder pid={} route {:?}", ctx.process.pid, target);
+            }
             if let Some((to, mut target_tid, allow_fds)) =
                 target.filter(|(id, _, _)| s.procs.contains_key(id))
             {
@@ -364,7 +392,13 @@ impl Binder {
                         .or_default()
                         .waiting_on = Some(to);
                 }
-                if translate_objects(&mut s, self.id, to, &mut data, &offsets).is_err() {
+                if let Err(error) = translate_objects(&mut s, self.id, to, &mut data, &offsets) {
+                    if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                        eprintln!(
+                            "binder pid={} object translation failed: {}",
+                            ctx.process.pid, error
+                        );
+                    }
                     s.procs
                         .get_mut(&self.id)
                         .unwrap()
@@ -452,6 +486,13 @@ impl Binder {
                     .todo
                     .push_back(Work::Command(COMPLETE));
             } else {
+                if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                    eprintln!(
+                        "binder pid={} dead target handle={}",
+                        ctx.process.pid,
+                        get32(b, 0)
+                    );
+                }
                 let p = s.procs.get_mut(&self.id).ok_or(ECONNREFUSED)?;
                 p.threads
                     .entry(tid)

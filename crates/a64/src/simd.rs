@@ -232,37 +232,81 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
     }
     // Saturating doubling multiply by an indexed element.
     if insn & 0x8f00_0400 == 0x0f00_0000 {
-        let opcode=(insn>>12)&15;let u=insn & (1<<29)!=0;
-        let valid=(!u && matches!(opcode,3 | 7 | 11 | 12 | 13)) || (u && matches!(opcode,13|15));
+        let opcode = (insn >> 12) & 15;
+        let u = insn & (1 << 29) != 0;
+        let valid =
+            (!u && matches!(opcode, 3 | 7 | 11 | 12 | 13)) || (u && matches!(opcode, 13 | 15));
         if valid {
-            let scalar=insn & (1<<28)!=0;let size=(insn>>22)&3;
-            if !matches!(size,1|2) || (scalar && !q) {return false;}
-            let width=8<<size;let long=matches!(opcode,3|7|11);let out_width=if long {2*width} else {width};
-            let h=(insn>>11)&1;let l=(insn>>21)&1;let mr=(insn>>20)&1;
-            let index=if width==16 {(h<<2)|(l<<1)|mr} else {(h<<1)|l};
-            let reg=if width==16 {((insn>>16)&15) as usize} else {((insn>>16)&31) as usize};
-            let lm=(1u128<<width)-1;let om=(1u128<<out_width)-1;
-            let signed=|v:u128,w:u32| -> i128 {((v << (128-w)) as i128) >> (128-w)};
-            let elem=signed((cpu.v[reg]>>(index*width))&lm,width);
-            let lo=-(1i128<<(out_width-1));let hi=(1i128<<(out_width-1))-1;
-            let lanes=if scalar {1} else if long {64/width} else {(if q {128} else {64})/width};
-            let mut out=0;
-            for i in 0..lanes {
-                let shift=i*width+if long && q && !scalar {64} else {0};
-                let prod=2*signed((a>>shift)&lm,width)*elem;
-                let prev=signed((old>>(i*out_width))&om,out_width);
-                let value=if long {
-                    let p=prod.clamp(lo,hi);if p!=prod {cpu.fpsr |= 1<<27;}
-                    if opcode==3 {prev+p} else if opcode==7 {prev-p} else {p}
-                } else {
-                    let acc=if u {prev<<width} else {0};
-                    let p=if opcode==15 {-prod} else {prod};
-                    (acc+p+if opcode==13 || opcode==15 {1i128<<(width-1)} else {0})>>width
-                };
-                let clipped=value.clamp(lo,hi);if clipped!=value {cpu.fpsr |= 1<<27;}
-                out |= ((clipped as u128)&om)<<(i*out_width);
+            let scalar = insn & (1 << 28) != 0;
+            let size = (insn >> 22) & 3;
+            if !matches!(size, 1 | 2) || (scalar && !q) {
+                return false;
             }
-            cpu.v[d]=out;return true;
+            let width = 8 << size;
+            let long = matches!(opcode, 3 | 7 | 11);
+            let out_width = if long { 2 * width } else { width };
+            let h = (insn >> 11) & 1;
+            let l = (insn >> 21) & 1;
+            let mr = (insn >> 20) & 1;
+            let index = if width == 16 {
+                (h << 2) | (l << 1) | mr
+            } else {
+                (h << 1) | l
+            };
+            let reg = if width == 16 {
+                ((insn >> 16) & 15) as usize
+            } else {
+                ((insn >> 16) & 31) as usize
+            };
+            let lm = (1u128 << width) - 1;
+            let om = (1u128 << out_width) - 1;
+            let signed = |v: u128, w: u32| -> i128 { ((v << (128 - w)) as i128) >> (128 - w) };
+            let elem = signed((cpu.v[reg] >> (index * width)) & lm, width);
+            let lo = -(1i128 << (out_width - 1));
+            let hi = (1i128 << (out_width - 1)) - 1;
+            let lanes = if scalar {
+                1
+            } else if long {
+                64 / width
+            } else {
+                (if q { 128 } else { 64 }) / width
+            };
+            let mut out = 0;
+            for i in 0..lanes {
+                let shift = i * width + if long && q && !scalar { 64 } else { 0 };
+                let prod = 2 * signed((a >> shift) & lm, width) * elem;
+                let prev = signed((old >> (i * out_width)) & om, out_width);
+                let value = if long {
+                    let p = prod.clamp(lo, hi);
+                    if p != prod {
+                        cpu.fpsr |= 1 << 27;
+                    }
+                    if opcode == 3 {
+                        prev + p
+                    } else if opcode == 7 {
+                        prev - p
+                    } else {
+                        p
+                    }
+                } else {
+                    let acc = if u { prev << width } else { 0 };
+                    let p = if opcode == 15 { -prod } else { prod };
+                    (acc + p
+                        + if opcode == 13 || opcode == 15 {
+                            1i128 << (width - 1)
+                        } else {
+                            0
+                        })
+                        >> width
+                };
+                let clipped = value.clamp(lo, hi);
+                if clipped != value {
+                    cpu.fpsr |= 1 << 27;
+                }
+                out |= ((clipped as u128) & om) << (i * out_width);
+            }
+            cpu.v[d] = out;
+            return true;
         }
     }
     // Integer multiply by an indexed vector element, including long forms.
@@ -323,26 +367,123 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
         }
     }
     // Scalar integer operations on D registers.
-    let scalar_op=insn & 0xffe0_fc00;
-    if matches!(scalar_op,0x5ee0_8400 | 0x7ee0_8400 | 0x7ee0_8c00 | 0x5ee0_8c00 | 0x5ee0_3400 | 0x5ee0_3c00 | 0x7ee0_3400 | 0x7ee0_3c00) {
-        let x=a as u64;let y=b as u64;
-        let v=match scalar_op {
-            0x5ee0_8400=>x.wrapping_add(y),0x7ee0_8400=>x.wrapping_sub(y),
-            0x7ee0_8c00=>if x==y {u64::MAX} else {0},0x5ee0_8c00=>if x&y!=0 {u64::MAX} else {0},
-            0x5ee0_3400=>if (x as i64)>(y as i64) {u64::MAX} else {0},
-            0x5ee0_3c00=>if (x as i64)>=(y as i64) {u64::MAX} else {0},
-            0x7ee0_3400=>if x>y {u64::MAX} else {0},_=>if x>=y {u64::MAX} else {0},
-        };cpu.v[d]=v as u128;return true;
+    let scalar_op = insn & 0xffe0_fc00;
+    if matches!(
+        scalar_op,
+        0x5ee0_8400
+            | 0x7ee0_8400
+            | 0x7ee0_8c00
+            | 0x5ee0_8c00
+            | 0x5ee0_3400
+            | 0x5ee0_3c00
+            | 0x7ee0_3400
+            | 0x7ee0_3c00
+    ) {
+        let x = a as u64;
+        let y = b as u64;
+        let v = match scalar_op {
+            0x5ee0_8400 => x.wrapping_add(y),
+            0x7ee0_8400 => x.wrapping_sub(y),
+            0x7ee0_8c00 => {
+                if x == y {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x5ee0_8c00 => {
+                if x & y != 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x5ee0_3400 => {
+                if (x as i64) > (y as i64) {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x5ee0_3c00 => {
+                if (x as i64) >= (y as i64) {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x7ee0_3400 => {
+                if x > y {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            _ => {
+                if x >= y {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+        };
+        cpu.v[d] = v as u128;
+        return true;
     }
-    let scalar_misc=insn & 0xffff_fc00;
-    if matches!(scalar_misc,0x5ee0_b800 | 0x7ee0_b800 | 0x5ee0_9800 | 0x5ee0_8800 | 0x7ee0_8800 | 0x5ee0_a800 | 0x7ee0_9800) {
-        let x=a as u64;let signed=x as i64;
-        let v=match scalar_misc {
-            0x5ee0_b800=>signed.wrapping_abs() as u64,0x7ee0_b800=>x.wrapping_neg(),
-            0x5ee0_9800=>if x==0 {u64::MAX} else {0},0x5ee0_8800=>if signed>0 {u64::MAX} else {0},
-            0x7ee0_8800=>if signed>=0 {u64::MAX} else {0},0x5ee0_a800=>if signed<0 {u64::MAX} else {0},
-            _=>if signed<=0 {u64::MAX} else {0},
-        };cpu.v[d]=v as u128;return true;
+    let scalar_misc = insn & 0xffff_fc00;
+    if matches!(
+        scalar_misc,
+        0x5ee0_b800
+            | 0x7ee0_b800
+            | 0x5ee0_9800
+            | 0x5ee0_8800
+            | 0x7ee0_8800
+            | 0x5ee0_a800
+            | 0x7ee0_9800
+    ) {
+        let x = a as u64;
+        let signed = x as i64;
+        let v = match scalar_misc {
+            0x5ee0_b800 => signed.wrapping_abs() as u64,
+            0x7ee0_b800 => x.wrapping_neg(),
+            0x5ee0_9800 => {
+                if x == 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x5ee0_8800 => {
+                if signed > 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x7ee0_8800 => {
+                if signed >= 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            0x5ee0_a800 => {
+                if signed < 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+            _ => {
+                if signed <= 0 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+        };
+        cpu.v[d] = v as u128;
+        return true;
     }
     // Signed and unsigned halving add/subtract, with optional rounding.
     let half_op = insn & 0x9f20_fc00;
@@ -419,37 +560,96 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
         return true;
     }
     // Saturating doubling multiply, multiply-high, and accumulating forms.
-    let qdm=insn & 0x8f20_fc00;
-    let high=qdm==0x0e20_b400;
-    let rdm=matches!(qdm,0x0e00_8400 | 0x0e00_8c00) && insn & (1<<29)!=0;
-    let long=matches!(qdm,0x0e20_9000 | 0x0e20_b000 | 0x0e20_d000) && insn & (1<<29)==0;
+    let qdm = insn & 0x8f20_fc00;
+    let high = qdm == 0x0e20_b400;
+    let rdm = matches!(qdm, 0x0e00_8400 | 0x0e00_8c00) && insn & (1 << 29) != 0;
+    let long = matches!(qdm, 0x0e20_9000 | 0x0e20_b000 | 0x0e20_d000) && insn & (1 << 29) == 0;
     if high || rdm || long {
-        let size=(insn>>22)&3;if !matches!(size,1|2) {return false;}
-        let scalar=insn & (1<<28)!=0;if scalar && !q {return false;}
-        let width=8 << size;let out_width=if long {2*width} else {width};
-        let lm=(1u128<<width)-1;let om=(1u128<<out_width)-1;
-        let lo=-(1i128<<(out_width-1));let hi=(1i128<<(out_width-1))-1;
-        let lanes=if scalar {1} else if long {64/width} else {(if q {128} else {64})/width};
-        let round=rdm || (high && insn & (1<<29)!=0);
-        let mut out=0;
-        for i in 0..lanes {
-            let shift=i*width+if long && q && !scalar {64} else {0};
-            let signed=|v:u128,w:u32| -> i128 {((v << (128-w)) as i128) >> (128-w)};
-            let x=signed((a>>shift)&lm,width);let y=signed((b>>shift)&lm,width);
-            let prod=x*y*2;
-            let result=if long {
-                let p=prod.clamp(lo,hi);if p!=prod {cpu.fpsr |= 1<<27;}
-                let acc=signed((old>>(i*out_width))&om,out_width);
-                if qdm==0x0e20_9000 {acc+p} else if qdm==0x0e20_b000 {acc-p} else {p}
-            } else {
-                let acc=if rdm {signed((old>>(i*width))&lm,width)<<width} else {0};
-                let product=if qdm==0x0e00_8c00 {-prod} else {prod};
-                (acc+product+if round {1i128<<(width-1)} else {0})>>width
-            };
-            let clipped=result.clamp(lo,hi);if clipped!=result {cpu.fpsr |= 1<<27;}
-            out |= ((clipped as u128)&om) << (i*out_width);
+        let size = (insn >> 22) & 3;
+        if !matches!(size, 1 | 2) {
+            return false;
         }
-        cpu.v[d]=out;return true;
+        let scalar = insn & (1 << 28) != 0;
+        if scalar && !q {
+            return false;
+        }
+        let width = 8 << size;
+        let out_width = if long { 2 * width } else { width };
+        let lm = (1u128 << width) - 1;
+        let om = (1u128 << out_width) - 1;
+        let lo = -(1i128 << (out_width - 1));
+        let hi = (1i128 << (out_width - 1)) - 1;
+        let lanes = if scalar {
+            1
+        } else if long {
+            64 / width
+        } else {
+            (if q { 128 } else { 64 }) / width
+        };
+        let round = rdm || (high && insn & (1 << 29) != 0);
+        let mut out = 0;
+        for i in 0..lanes {
+            let shift = i * width + if long && q && !scalar { 64 } else { 0 };
+            let signed = |v: u128, w: u32| -> i128 { ((v << (128 - w)) as i128) >> (128 - w) };
+            let x = signed((a >> shift) & lm, width);
+            let y = signed((b >> shift) & lm, width);
+            let prod = x * y * 2;
+            let result = if long {
+                let p = prod.clamp(lo, hi);
+                if p != prod {
+                    cpu.fpsr |= 1 << 27;
+                }
+                let acc = signed((old >> (i * out_width)) & om, out_width);
+                if qdm == 0x0e20_9000 {
+                    acc + p
+                } else if qdm == 0x0e20_b000 {
+                    acc - p
+                } else {
+                    p
+                }
+            } else {
+                let acc = if rdm {
+                    signed((old >> (i * width)) & lm, width) << width
+                } else {
+                    0
+                };
+                let product = if qdm == 0x0e00_8c00 { -prod } else { prod };
+                (acc + product + if round { 1i128 << (width - 1) } else { 0 }) >> width
+            };
+            let clipped = result.clamp(lo, hi);
+            if clipped != result {
+                cpu.fpsr |= 1 << 27;
+            }
+            out |= ((clipped as u128) & om) << (i * out_width);
+        }
+        cpu.v[d] = out;
+        return true;
+    }
+    // Narrow the high half of widened add/subtract results.
+    let addhn = insn & 0x9f20_fc00;
+    if matches!(addhn, 0x0e20_4000 | 0x0e20_6000) {
+        let size = (insn >> 22) & 3;
+        if size == 3 {
+            return false;
+        }
+        let width = 8 << size;
+        let source_mask = (1u128 << (2 * width)) - 1;
+        let dest_mask = (1u128 << width) - 1;
+        let rounding = insn & (1 << 29) != 0;
+        let mut out = if q { old & u64::MAX as u128 } else { 0 };
+        for i in 0..64 / width {
+            let x = (a >> (i * 2 * width)) & source_mask;
+            let y = (b >> (i * 2 * width)) & source_mask;
+            let value = if addhn == 0x0e20_4000 {
+                x.wrapping_add(y)
+            } else {
+                x.wrapping_sub(y)
+            };
+            let value = value.wrapping_add(if rounding { 1u128 << (width - 1) } else { 0 });
+            out |= ((value >> width) & dest_mask) << (i * width + if q { 64 } else { 0 });
+        }
+        cpu.v[d] = out;
+        return true;
     }
     // Widening integer arithmetic and multiply-accumulate.
     if insn & 0x9f20_0c00 == 0x0e20_0000 {
@@ -997,10 +1197,20 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
             let exp_low = ((imm >> 4) & 3) as u64;
             let frac = (imm & 15) as u64;
             if op != 0 {
-                if !q {return false;}
-                value = (sign << 63) | ((!b & 1) << 62) | (if b != 0 {0xff << 54} else {0}) | (exp_low << 52) | (frac << 48);
+                if !q {
+                    return false;
+                }
+                value = (sign << 63)
+                    | ((!b & 1) << 62)
+                    | (if b != 0 { 0xff << 54 } else { 0 })
+                    | (exp_low << 52)
+                    | (frac << 48);
             } else {
-                let w = (sign << 31) | ((!b & 1) << 30) | (if b != 0 {0x1f << 25} else {0}) | (exp_low << 23) | (frac << 19);
+                let w = (sign << 31)
+                    | ((!b & 1) << 30)
+                    | (if b != 0 { 0x1f << 25 } else { 0 })
+                    | (exp_low << 23)
+                    | (frac << 19);
                 value = w | (w << 32);
             }
         }
@@ -1118,11 +1328,15 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
             | 0x0e20_5800
             | 0x2e20_5800
             | 0x2e20_4800
+            | 0x0e20_4800
             | 0x0e20_b800
             | 0x2e20_b800
     ) {
         let bits = 8 << ((insn >> 22) & 3);
         if bits == 64 && !q {
+            return false;
+        }
+        if matches!(misc, 0x0e20_4800 | 0x2e20_4800) && bits == 64 {
             return false;
         }
         if matches!(misc, 0x0e20_5800 | 0x2e20_5800) && bits != 8 {
@@ -1172,6 +1386,10 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
                 0x0e20_5800 => v.count_ones() as u128,
                 0x2e20_5800 => !v,
                 0x2e20_4800 => (v.leading_zeros() - (128 - bits)) as u128,
+                0x0e20_4800 => {
+                    let x = if signed < 0 { !v & lm } else { v };
+                    (x.leading_zeros() - (128 - bits) - 1) as u128
+                }
                 0x0e20_b800 => signed.wrapping_abs() as u128,
                 _ => (0u128).wrapping_sub(v),
             } & lm;
@@ -1297,7 +1515,13 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
             0x2e20_9400 => (old >> (i * bits)).wrapping_sub(x.wrapping_mul(y)),
             0x0e20_8400 => x.wrapping_add(y),
             0x2e20_8400 => x.wrapping_sub(y),
-            0x0e20_8c00 => if x & y != 0 { lane_mask } else {0},
+            0x0e20_8c00 => {
+                if x & y != 0 {
+                    lane_mask
+                } else {
+                    0
+                }
+            }
             0x2e20_8c00 => {
                 if x == y {
                     lane_mask
@@ -1628,11 +1852,12 @@ mod tests {
     }
     #[test]
     fn vector_float_immediates() {
-        let mem = memory();let mut c=Cpu::new();
-        exec_dp(&mut c,&mem,0x4f03f600).unwrap();
-        assert_eq!(c.v[0],0x3f8000003f8000003f8000003f800000);
-        exec_dp(&mut c,&mem,0x6f04f400).unwrap();
-        assert_eq!(c.v[0],0xc000000000000000c000000000000000);
+        let mem = memory();
+        let mut c = Cpu::new();
+        exec_dp(&mut c, &mem, 0x4f03f600).unwrap();
+        assert_eq!(c.v[0], 0x3f8000003f8000003f8000003f800000);
+        exec_dp(&mut c, &mem, 0x6f04f400).unwrap();
+        assert_eq!(c.v[0], 0xc000000000000000c000000000000000);
     }
     #[test]
     fn scalar_nan_and_comparison() {

@@ -29,7 +29,9 @@ pub(crate) unsafe fn cas128(p: *mut u8, expected: u128, new: u128) -> u128 {
             "2: ldaxp {lo}, {hi}, [{ptr}]",
             "cmp {lo}, {exlo}", "ccmp {hi}, {exhi}, #0, eq", "b.ne 3f",
             "stlxp {status:w}, {newlo}, {newhi}, [{ptr}]", "cbnz {status:w}, 2b", "b 4f",
-            "3: clrex", "4:",
+            // Validate a failed comparison as well: an AArch64 pair load can
+            // otherwise observe halves from different concurrent stores.
+            "3: stlxp {status:w}, {lo}, {hi}, [{ptr}]", "cbnz {status:w}, 2b", "4:",
             ptr=in(reg) p, exlo=in(reg) expected as u64, exhi=in(reg) (expected>>64) as u64,
             newlo=in(reg) new as u64, newhi=in(reg) (new>>64) as u64,
             lo=out(reg) lo, hi=out(reg) hi, status=out(reg) status,

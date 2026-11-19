@@ -1609,6 +1609,58 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             write_timespec(ctx, a[1] + 16, v);
             Ok(0)
         })()),
+        107 => {
+            // timer_create(clock, sigevent*, timer_t*)
+            let (signo, notify, tid) = if a[1] != 0 {
+                let mut b = [0u8; 24];
+                if !mm.read(a[1], &mut b) {
+                    return EFAULT;
+                }
+                let signo = u32::from_le_bytes(b[8..12].try_into().unwrap());
+                let notify = i32::from_le_bytes(b[12..16].try_into().unwrap());
+                let tid = i32::from_le_bytes(b[16..20].try_into().unwrap());
+                (signo, notify, tid)
+            } else {
+                (SIGALRM, 0, 0)
+            };
+            let t = PosixTimer::new(ctx, signo, notify, tid);
+            let mut timers = TIMERS.lock();
+            let id = timers.len() as u32;
+            timers.push(Some(t));
+            if mm.write_u32(a[2], id) {
+                0
+            } else {
+                EFAULT
+            }
+        }
+        110 | 108 => {
+            // timer_settime(id, flags, new*, old*) / timer_gettime(id, cur*)
+            let Some(t) = TIMERS.lock().get(a[0] as usize).cloned().flatten() else { return EINVAL };
+            let out = if nr == 108 { a[1] } else { a[3] };
+            if out != 0 {
+                let (i, v) = t.get();
+                write_timespec(ctx, out, i);
+                write_timespec(ctx, out + 16, v);
+            }
+            if nr == 110 {
+                let (Ok(i), Ok(v)) = (read_timespec(ctx, a[2]), read_timespec(ctx, a[2] + 16)) else { return EFAULT };
+                t.set(i, v, a[1] & 1 != 0);
+            }
+            0
+        }
+        109 => 0,
+        111 => {
+            let mut timers = TIMERS.lock();
+            match timers.get_mut(a[0] as usize) {
+                Some(slot @ Some(_)) => {
+                    if let Some(t) = slot.take() {
+                        t.set(Duration::ZERO, Duration::ZERO, false);
+                    }
+                    0
+                }
+                _ => EINVAL,
+            }
+        }
         98 => crate::futex::sys_futex(ctx, a[0], a[1] as u32, a[2] as u32, a[3], a[4], a[5] as u32),
         // ---- misc ----
         160 => {
@@ -1841,7 +1893,7 @@ fn sys_mmap(ctx: &Ctx, a: [u64; 6]) -> i64 {
             Ok(f) => f,
             Err(e) => return e,
         };
-        if let Some(shm) = f.node.shared_mem() {
+        if let Some((shm, shm_off)) = f.node.shared_mem_at(off, len) {
             // Binder requires a driver-owned receive area even though libbinder
             // maps its fd with MAP_PRIVATE.
             if flags & MAP_SHARED != 0 || f.node.as_any().is::<crate::binder::Binder>() {
@@ -1851,7 +1903,7 @@ fn sys_mmap(ctx: &Ctx, a: [u64; 6]) -> i64 {
                 (
                     Backing::Shared {
                         mem: shm,
-                        offset: off,
+                        offset: shm_off,
                     },
                     Arc::from(f.path.as_str()),
                 )
@@ -1859,7 +1911,7 @@ fn sys_mmap(ctx: &Ctx, a: [u64; 6]) -> i64 {
                 // Private copy of shared memory contents: snapshot pages.
                 let mem = SharedMem::new(len);
                 for i in 0..len / PAGE {
-                    if let (Some(src), Some(dst)) = (shm.page(off / PAGE + i), mem.page(i)) {
+                    if let (Some(src), Some(dst)) = (shm.page(shm_off / PAGE + i), mem.page(i)) {
                         dst.bytes_mut().copy_from_slice(src.bytes());
                     }
                 }
@@ -3226,4 +3278,93 @@ fn sys_getxattr(ctx: &Ctx, nr: u64, a: [u64; 6]) -> i64 {
         Ok(label.len() as i64)
     })();
     ret(r)
+}
+
+/// POSIX timers (timer_create): a host thread delivers the signal.
+pub struct PosixTimer {
+    state: Mutex<(Option<Instant>, Duration)>,
+    process: std::sync::Weak<Process>,
+    tid: i32,
+    signo: u32,
+    notify: i32,
+    kernel: std::sync::Weak<crate::Kernel>,
+    wake: Arc<crate::sync::WaitQueue>,
+}
+
+static TIMERS: std::sync::LazyLock<Mutex<Vec<Option<Arc<PosixTimer>>>>> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+impl PosixTimer {
+    fn new(ctx: &Ctx, signo: u32, notify: i32, tid: i32) -> Arc<PosixTimer> {
+        let t = Arc::new(PosixTimer {
+            state: Mutex::new((None, Duration::ZERO)),
+            process: Arc::downgrade(&ctx.process),
+            tid,
+            signo,
+            notify,
+            kernel: Arc::downgrade(&ctx.kernel),
+            wake: crate::sync::WaitQueue::new(),
+        });
+        let w = Arc::downgrade(&t);
+        std::thread::Builder::new()
+            .name("posix-timer".into())
+            .spawn(move || loop {
+                let Some(t) = w.upgrade() else { break };
+                if t.process.upgrade().is_none_or(|p| !p.alive()) {
+                    break;
+                }
+                let seen = t.wake.epoch();
+                let next = t.state.lock().0;
+                match next {
+                    Some(n) if Instant::now() >= n => {
+                        {
+                            let mut s = t.state.lock();
+                            s.0 = if s.1.is_zero() { None } else { Some(n + s.1) };
+                        }
+                        t.fire();
+                    }
+                    Some(n) => {
+                        let wq = t.wake.clone();
+                        drop(t);
+                        wq.wait_change(seen, Some(n.min(Instant::now() + Duration::from_millis(100))));
+                    }
+                    None => {
+                        let wq = t.wake.clone();
+                        drop(t);
+                        wq.wait_change(seen, Some(Instant::now() + Duration::from_millis(100)));
+                    }
+                }
+            })
+            .ok();
+        t
+    }
+    fn fire(&self) {
+        // SIGEV_NONE (1) delivers nothing; SIGEV_THREAD_ID (4) targets a thread.
+        if self.notify == 1 {
+            return;
+        }
+        let (Some(k), Some(p)) = (self.kernel.upgrade(), self.process.upgrade()) else { return };
+        let info = SigInfo::simple(self.signo, -2, 0, 0); // SI_TIMER
+        if self.notify == 4 {
+            if let Some(t) = k.threads.lock().get(&self.tid).cloned() {
+                k.send_signal_thread(&t, info);
+                return;
+            }
+        }
+        k.send_signal_process(&p, info);
+    }
+    fn set(&self, interval: Duration, value: Duration, abs: bool) {
+        let next = if value.is_zero() {
+            None
+        } else if abs {
+            Some(crate::time::deadline(1, value))
+        } else {
+            Some(Instant::now() + value)
+        };
+        *self.state.lock() = (next, interval);
+        self.wake.notify();
+    }
+    fn get(&self) -> (Duration, Duration) {
+        let s = self.state.lock();
+        (s.1, s.0.map(|n| n.saturating_duration_since(Instant::now())).unwrap_or_default())
+    }
 }

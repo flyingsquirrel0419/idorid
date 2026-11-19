@@ -400,7 +400,12 @@ fn neo(args: &[String]) -> ExitCode {
         }
     };
     k.wait_idle(None);
-    eprintln!("[neo] done in {:?}", t0.elapsed());
+    if let Some(p) = &k.profile {
+        p.dump();
+    }
+    let insns = k.insns.load(std::sync::atomic::Ordering::Relaxed);
+    let secs = t0.elapsed().as_secs_f64();
+    eprintln!("[neo] done in {:.3}s, {} guest instructions ({:.1} MIPS)", secs, insns, insns as f64 / secs / 1e6);
     match k.exit_status(pid) {
         Some(idorid_kernel::task::ExitStatus::Exited(c)) => ExitCode::from(c as u8),
         Some(idorid_kernel::task::ExitStatus::Signaled(s, _)) => ExitCode::from(128 + s as u8),

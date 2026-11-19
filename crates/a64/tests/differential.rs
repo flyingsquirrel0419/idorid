@@ -245,7 +245,14 @@ fn benchmark_mips() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("a64-bench");
     std::fs::create_dir_all(&out).unwrap();
-    for name in ["base_sieve", "base_sha256", "base_libc", "base_bytecode"] {
+    for name in [
+        "base_sieve",
+        "base_sha256",
+        "base_libc",
+        "base_benchsort",
+        "base_benchmem",
+        "base_bytecode",
+    ] {
         let bin = out.join(name);
         let status = Command::new("aarch64-linux-gnu-gcc")
             .args(["-O2", "-static", "-mgeneral-regs-only"])

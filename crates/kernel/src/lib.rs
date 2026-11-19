@@ -27,6 +27,7 @@ pub mod input;
 pub mod mm;
 pub mod net;
 pub mod procfs;
+pub mod profile;
 pub mod selinux;
 pub mod sync;
 pub mod syscall;
@@ -82,6 +83,8 @@ pub struct Kernel {
     pub insns: AtomicU64,
     pub touchscreen: Arc<input::InputDevice>,
     pub keys: Arc<input::InputDevice>,
+    /// Sampling profile of guest code pages (IDORID_PROFILE=<out file>).
+    pub profile: Option<profile::Profile>,
 }
 
 impl Kernel {
@@ -118,6 +121,7 @@ impl Kernel {
                 },
             ),
             keys: input::InputDevice::new("idorid-keys", input::DeviceKind::Keys),
+            profile: std::env::var_os("IDORID_PROFILE").map(|p| profile::Profile::new(p.into())),
         });
         k.install_devices();
         k.first_stage(&cfg.state);

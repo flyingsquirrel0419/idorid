@@ -1107,10 +1107,40 @@ fn execute_cached<A: AddressSpace + ?Sized>(
     }
 }
 pub(crate) fn run<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64) -> Exit {
+    // Retain the original executor for comparative profiling and debugging.
+    static DISABLE_CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *DISABLE_CACHE.get_or_init(|| std::env::var_os("IDORID_A64_DISABLE_CACHE").is_some()) {
+        return run_uncached(cpu, mem, budget);
+    }
     let mut cache = core::mem::take(&mut cpu.block_cache);
     let result = run_cached(cpu, mem, budget, &mut cache);
     cpu.block_cache = cache;
     result
+}
+fn run_uncached<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64) -> Exit {
+    let end = cpu.retired.saturating_add(budget);
+    while cpu.retired < end {
+        let pc = cpu.pc;
+        let Some(p) = cpu.tlb.lookup(mem, pc, Access::Exec) else {
+            return Exit::Fault {
+                addr: pc,
+                access: Access::Exec,
+            };
+        };
+        let insn = unsafe { (p as *const u32).read_unaligned() };
+        match execute(cpu, mem, insn) {
+            Ok(exit) => {
+                cpu.retired += 1;
+                match exit {
+                    None => cpu.pc = pc.wrapping_add(4),
+                    Some(Exit::Budget) => {}
+                    Some(e) => return e,
+                }
+            }
+            Err(e) => return e,
+        }
+    }
+    Exit::Budget
 }
 fn run_cached<A: AddressSpace + ?Sized>(
     cpu: &mut Cpu,

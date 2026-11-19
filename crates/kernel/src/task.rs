@@ -482,6 +482,8 @@ impl Ctx {
 
 /// Instructions between checks for signals / address-space changes.
 const SLICE: u64 = 100_000;
+/// Slice length while profiling (more samples).
+const PROFILE_SLICE: u64 = 5_000;
 
 /// Runs a guest thread on the current host thread until it exits.
 pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
@@ -504,7 +506,8 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
         // exits inline.
         let mut slices = 0u32;
         let stop = loop {
-            match cpu.run(&*ctx.mm, SLICE) {
+            let slice = if kernel.profile.is_some() { PROFILE_SLICE } else { SLICE };
+            match cpu.run(&*ctx.mm, slice) {
                 Exit::Svc(_) => {
                     match crate::syscall::dispatch(&ctx, &mut cpu) {
                         crate::syscall::Flow::Continue => {}
@@ -516,6 +519,9 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
                     }
                 }
                 Exit::Budget | Exit::Yield => {
+                    if let Some(prof) = &kernel.profile {
+                        prof.sample(&ctx.mm, cpu.pc);
+                    }
                     slices += 1;
                     if ctx.signal_pending() || slices % 16 == 0 {
                         break false;
@@ -568,6 +574,7 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
             break;
         }
     }
+    kernel.insns.fetch_add(cpu.retired, Ordering::Relaxed);
     kernel.thread_exited(&thread);
     CURRENT.with(|c| *c.borrow_mut() = None);
 }

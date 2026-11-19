@@ -4,28 +4,75 @@ use crate::cpu::Cpu;
 pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
     // Floating multiply and fused multiply-add/subtract by an indexed element.
     if insn & 0x8f80_0400 == 0x0f80_0000 {
-        let op=(insn>>12)&15;let u=insn & (1<<29)!=0;
-        if (!u && matches!(op,1|5|9)) || (u && op==9) {
-            let scalar=insn & (1<<28)!=0;let q=insn & (1<<30)!=0;let double=insn & (1<<22)!=0;
-            let h=(insn>>11)&1;let l=(insn>>21)&1;
-            if (scalar && !q) || (double && (l!=0 || (!scalar && !q))) {return false;}
-            let index=if double {h} else {(h<<1)|l};let width=if double {64} else {32};
-            let lanes=if scalar {1} else {(if q {128} else {64})/width};
-            let d=(insn&31) as usize;let n=((insn>>5)&31) as usize;let m=((insn>>16)&31) as usize;
-            let src=cpu.v[n];let acc=cpu.v[d];let lm=(1u128<<width)-1;let elem=(cpu.v[m]>>(index*width))&lm;
-            let saved=[cpu.v[28],cpu.v[29],cpu.v[30],cpu.v[31]];let mut out=0u128;
-            for i in 0..lanes {
-                cpu.v[28]=(acc>>(i*width))&lm;cpu.v[29]=(src>>(i*width))&lm;cpu.v[30]=elem;
-                let word=if op==9 {0x1e20_0800 | (if double {1<<22} else {0}) | (30<<16) | (29<<5) | 31}
-                    else {0x1f00_0000 | (if double {1<<22} else {0}) | (30<<16) | (if op==5 {1<<15} else {0}) | (28<<10) | (29<<5) | 31};
-                let x=crate::fp::input(cpu,cpu.v[29] as u64,double);let y=crate::fp::input(cpu,elem as u64,double);
-                let exp=if double {0x7ff0_0000_0000_0000} else {0x7f80_0000};let sign=if double {1u64<<63} else {1u64<<31};
-                let mulx_special=u && (((x & !sign)==exp && (y & !sign)==0) || ((y & !sign)==exp && (x & !sign)==0));
-                let value=if mulx_special {((x^y)&sign) as u128 | if double {0x4000_0000_0000_0000} else {0x4000_0000}}
-                    else {let _=crate::fp::exec(cpu,word);cpu.v[31]};
-                out |= (value&lm)<<(i*width);
+        let op = (insn >> 12) & 15;
+        let u = insn & (1 << 29) != 0;
+        if (!u && matches!(op, 1 | 5 | 9)) || (u && op == 9) {
+            let scalar = insn & (1 << 28) != 0;
+            let q = insn & (1 << 30) != 0;
+            let double = insn & (1 << 22) != 0;
+            let h = (insn >> 11) & 1;
+            let l = (insn >> 21) & 1;
+            if (scalar && !q) || (double && (l != 0 || (!scalar && !q))) {
+                return false;
             }
-            cpu.v[28..32].copy_from_slice(&saved);cpu.v[d]=out;return true;
+            let index = if double { h } else { (h << 1) | l };
+            let width = if double { 64 } else { 32 };
+            let lanes = if scalar {
+                1
+            } else {
+                (if q { 128 } else { 64 }) / width
+            };
+            let d = (insn & 31) as usize;
+            let n = ((insn >> 5) & 31) as usize;
+            let m = ((insn >> 16) & 31) as usize;
+            let src = cpu.v[n];
+            let acc = cpu.v[d];
+            let lm = (1u128 << width) - 1;
+            let elem = (cpu.v[m] >> (index * width)) & lm;
+            let saved = [cpu.v[28], cpu.v[29], cpu.v[30], cpu.v[31]];
+            let mut out = 0u128;
+            for i in 0..lanes {
+                cpu.v[28] = (acc >> (i * width)) & lm;
+                cpu.v[29] = (src >> (i * width)) & lm;
+                cpu.v[30] = elem;
+                let word = if op == 9 {
+                    0x1e20_0800 | (if double { 1 << 22 } else { 0 }) | (30 << 16) | (29 << 5) | 31
+                } else {
+                    0x1f00_0000
+                        | (if double { 1 << 22 } else { 0 })
+                        | (30 << 16)
+                        | (if op == 5 { 1 << 15 } else { 0 })
+                        | (28 << 10)
+                        | (29 << 5)
+                        | 31
+                };
+                let x = crate::fp::input(cpu, cpu.v[29] as u64, double);
+                let y = crate::fp::input(cpu, elem as u64, double);
+                let exp = if double {
+                    0x7ff0_0000_0000_0000
+                } else {
+                    0x7f80_0000
+                };
+                let sign = if double { 1u64 << 63 } else { 1u64 << 31 };
+                let mulx_special = u
+                    && (((x & !sign) == exp && (y & !sign) == 0)
+                        || ((y & !sign) == exp && (x & !sign) == 0));
+                let value = if mulx_special {
+                    ((x ^ y) & sign) as u128
+                        | if double {
+                            0x4000_0000_0000_0000
+                        } else {
+                            0x4000_0000
+                        }
+                } else {
+                    let _ = crate::fp::exec(cpu, word);
+                    cpu.v[31]
+                };
+                out |= (value & lm) << (i * width);
+            }
+            cpu.v[28..32].copy_from_slice(&saved);
+            cpu.v[d] = out;
+            return true;
         }
     }
     // Per-lane integer/FP conversions, with optional fixed-point scaling.
@@ -113,29 +160,109 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         return true;
     }
     // Floating comparisons against zero, absolute comparisons, and FABD.
-    let zero_key=insn & 0xafbf_fc00;
-    let zero_op=match zero_key {0x0ea0_d800=>Some(0),0x0ea0_c800=>Some(1),0x2ea0_c800=>Some(2),0x0ea0_e800=>Some(3),0x2ea0_d800=>Some(4),_=>None};
-    let other=insn & 0xafa0_fc00;
-    let other_op=match other {0x2ea0_ec00=>Some(5),0x2e20_ec00=>Some(6),0x2ea0_d400=>Some(7),_=>None};
-    if let Some(op)=zero_op.or(other_op) {
-        let scalar=insn & (1<<28)!=0;let q=insn & (1<<30)!=0;let double=insn & (1<<22)!=0;
-        if (scalar && !q) || (!scalar && double && !q) {return false;}
-        let width=if double {64} else {32};let lanes=if scalar {1} else {(if q {128} else {64})/width};
-        let d=(insn&31) as usize;let n=((insn>>5)&31) as usize;let m=((insn>>16)&31) as usize;
-        let a=cpu.v[n];let b=cpu.v[m];let lm=(1u128<<width)-1;let sign=1u128<<(width-1);
-        let saved=[cpu.v[29],cpu.v[30],cpu.v[31]];let flags=cpu.nzcv;let mut out=0u128;
-        for i in 0..lanes {
-            let mut x=(a>>(i*width))&lm;let mut y=if op<=4 {0} else {(b>>(i*width))&lm};
-            if op==5 || op==6 {x &= !sign;y &= !sign;}
-            cpu.v[29]=x;cpu.v[30]=y;
-            let word=if op==7 {0x1e20_3800 | (if double {1<<22} else {0}) | (30<<16) | (29<<5) | 31}
-                else {0x1e20_2000 | (if double {1<<22} else {0}) | (30<<16) | (29<<5) | if op==0 {0} else {16}};
-            let _=crate::fp::exec(cpu,word);
-            let nz=cpu.nzcv;
-            let val=match op {0=>if nz==0x6000_0000 {lm} else {0},1|5=>if nz==0x2000_0000 {lm} else {0},2|6=>if nz==0x2000_0000 || nz==0x6000_0000 {lm} else {0},3=>if nz==0x8000_0000 {lm} else {0},4=>if nz==0x8000_0000 || nz==0x6000_0000 {lm} else {0},_=>cpu.v[31]&!sign};
-            out |= (val&lm) << (i*width);
+    let zero_key = insn & 0xafbf_fc00;
+    let zero_op = match zero_key {
+        0x0ea0_d800 => Some(0),
+        0x0ea0_c800 => Some(1),
+        0x2ea0_c800 => Some(2),
+        0x0ea0_e800 => Some(3),
+        0x2ea0_d800 => Some(4),
+        _ => None,
+    };
+    let other = insn & 0xafa0_fc00;
+    let other_op = match other {
+        0x2ea0_ec00 => Some(5),
+        0x2e20_ec00 => Some(6),
+        0x2ea0_d400 => Some(7),
+        _ => None,
+    };
+    if let Some(op) = zero_op.or(other_op) {
+        let scalar = insn & (1 << 28) != 0;
+        let q = insn & (1 << 30) != 0;
+        let double = insn & (1 << 22) != 0;
+        if (scalar && !q) || (!scalar && double && !q) {
+            return false;
         }
-        cpu.v[29..32].copy_from_slice(&saved);cpu.nzcv=flags;cpu.v[d]=out;return true;
+        let width = if double { 64 } else { 32 };
+        let lanes = if scalar {
+            1
+        } else {
+            (if q { 128 } else { 64 }) / width
+        };
+        let d = (insn & 31) as usize;
+        let n = ((insn >> 5) & 31) as usize;
+        let m = ((insn >> 16) & 31) as usize;
+        let a = cpu.v[n];
+        let b = cpu.v[m];
+        let lm = (1u128 << width) - 1;
+        let sign = 1u128 << (width - 1);
+        let saved = [cpu.v[29], cpu.v[30], cpu.v[31]];
+        let flags = cpu.nzcv;
+        let mut out = 0u128;
+        for i in 0..lanes {
+            let mut x = (a >> (i * width)) & lm;
+            let mut y = if op <= 4 { 0 } else { (b >> (i * width)) & lm };
+            if op == 5 || op == 6 {
+                x &= !sign;
+                y &= !sign;
+            }
+            cpu.v[29] = x;
+            cpu.v[30] = y;
+            let word = if op == 7 {
+                0x1e20_3800 | (if double { 1 << 22 } else { 0 }) | (30 << 16) | (29 << 5) | 31
+            } else {
+                0x1e20_2000
+                    | (if double { 1 << 22 } else { 0 })
+                    | (30 << 16)
+                    | (29 << 5)
+                    | if op == 0 { 0 } else { 16 }
+            };
+            let _ = crate::fp::exec(cpu, word);
+            let nz = cpu.nzcv;
+            let val = match op {
+                0 => {
+                    if nz == 0x6000_0000 {
+                        lm
+                    } else {
+                        0
+                    }
+                }
+                1 | 5 => {
+                    if nz == 0x2000_0000 {
+                        lm
+                    } else {
+                        0
+                    }
+                }
+                2 | 6 => {
+                    if nz == 0x2000_0000 || nz == 0x6000_0000 {
+                        lm
+                    } else {
+                        0
+                    }
+                }
+                3 => {
+                    if nz == 0x8000_0000 {
+                        lm
+                    } else {
+                        0
+                    }
+                }
+                4 => {
+                    if nz == 0x8000_0000 || nz == 0x6000_0000 {
+                        lm
+                    } else {
+                        0
+                    }
+                }
+                _ => cpu.v[31] & !sign,
+            };
+            out |= (val & lm) << (i * width);
+        }
+        cpu.v[29..32].copy_from_slice(&saved);
+        cpu.nzcv = flags;
+        cpu.v[d] = out;
+        return true;
     }
     // Scalar result from a pair of FP lanes.
     let scalar_pair = match insn & 0xffbf_fc00 {
@@ -354,23 +481,52 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
     }
     // FMULX differs from FMUL for zero times infinity.
     if insn & 0xbfa0_fc00 == 0x0e20_dc00 {
-        let q=insn & (1<<30)!=0;let double=insn & (1<<22)!=0;if double && !q {return false;}
-        let width=if double {64} else {32};let lanes=(if q {128} else {64})/width;
-        let d=(insn&31) as usize;let n=((insn>>5)&31) as usize;let m=((insn>>16)&31) as usize;
-        let a=cpu.v[n];let b=cpu.v[m];let lm=(1u128<<width)-1;let saved=[cpu.v[29],cpu.v[30],cpu.v[31]];let mut out=0u128;
-        for i in 0..lanes {
-            let x=crate::fp::input(cpu,((a>>(i*width))&lm) as u64,double);
-            let y=crate::fp::input(cpu,((b>>(i*width))&lm) as u64,double);
-            let sign=if double {1u64<<63} else {1u64<<31};let inf=if double {0x7ff0_0000_0000_0000} else {0x7f80_0000};
-            let special=((x & !sign)==inf && (y & !sign)==0) || ((y & !sign)==inf && (x & !sign)==0);
-            let value=if special {((x^y)&sign) as u128 | if double {0x4000_0000_0000_0000} else {0x4000_0000}} else {
-                cpu.v[29]=x as u128;cpu.v[30]=y as u128;
-                let word=0x1e20_0800 | (if double {1<<22} else {0}) | (30<<16) | (29<<5) | 31;
-                let _=crate::fp::exec(cpu,word);cpu.v[31]
-            };
-            out |= (value&lm)<<(i*width);
+        let q = insn & (1 << 30) != 0;
+        let double = insn & (1 << 22) != 0;
+        if double && !q {
+            return false;
         }
-        cpu.v[29..32].copy_from_slice(&saved);cpu.v[d]=out;return true;
+        let width = if double { 64 } else { 32 };
+        let lanes = (if q { 128 } else { 64 }) / width;
+        let d = (insn & 31) as usize;
+        let n = ((insn >> 5) & 31) as usize;
+        let m = ((insn >> 16) & 31) as usize;
+        let a = cpu.v[n];
+        let b = cpu.v[m];
+        let lm = (1u128 << width) - 1;
+        let saved = [cpu.v[29], cpu.v[30], cpu.v[31]];
+        let mut out = 0u128;
+        for i in 0..lanes {
+            let x = crate::fp::input(cpu, ((a >> (i * width)) & lm) as u64, double);
+            let y = crate::fp::input(cpu, ((b >> (i * width)) & lm) as u64, double);
+            let sign = if double { 1u64 << 63 } else { 1u64 << 31 };
+            let inf = if double {
+                0x7ff0_0000_0000_0000
+            } else {
+                0x7f80_0000
+            };
+            let special = ((x & !sign) == inf && (y & !sign) == 0)
+                || ((y & !sign) == inf && (x & !sign) == 0);
+            let value = if special {
+                ((x ^ y) & sign) as u128
+                    | if double {
+                        0x4000_0000_0000_0000
+                    } else {
+                        0x4000_0000
+                    }
+            } else {
+                cpu.v[29] = x as u128;
+                cpu.v[30] = y as u128;
+                let word =
+                    0x1e20_0800 | (if double { 1 << 22 } else { 0 }) | (30 << 16) | (29 << 5) | 31;
+                let _ = crate::fp::exec(cpu, word);
+                cpu.v[31]
+            };
+            out |= (value & lm) << (i * width);
+        }
+        cpu.v[29..32].copy_from_slice(&saved);
+        cpu.v[d] = out;
+        return true;
     }
     let key = insn & 0xbfa0_fc00;
     let operation = match key {

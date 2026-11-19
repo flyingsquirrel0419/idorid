@@ -14,8 +14,8 @@
 //! caches translations in a per-CPU [`Tlb`].
 
 mod access;
-mod base_cache;
 mod base_atomic;
+mod base_cache;
 pub mod cpu;
 mod exec;
 mod fp;

@@ -222,3 +222,18 @@ fn differential_indexed_float() {
 fn differential_half_vector_arithmetic() {
     support::differential("fp_half_vector", &["-O2", "-march=armv8.2-a+fp16"]);
 }
+
+#[test]
+fn differential_half_controls() {
+    support::differential("fp_half_controls", &["-O2", "-march=armv8.2-a+fp16"]);
+}
+
+#[test]
+fn differential_structures() {
+    support::differential("simd_structures", &["-O2"]);
+}
+
+#[test]
+fn differential_narrowing_add_subtract() {
+    support::differential("simd_addhn", &["-O2"]);
+}
