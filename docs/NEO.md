@@ -46,6 +46,40 @@ system_server → SurfaceFlinger → launcher) inside the iOS app process.
 4. zygote + system_server boot; SurfaceFlinger to a host framebuffer.
 5. Launcher on screen, touch input; then AOT and GPU.
 
+## Status (2026-11-19)
+
+The unmodified Android 13 emulator ROM boots on our CPU and kernel up to
+`system_server`:
+
+- `init second_stage`: properties, SELinux (permissive emulation with real
+  file labels), ~120 rc files, ueventd, logd, lmkd;
+- servicemanager, hwservicemanager, vold, keystore2, keymint, ~40 HALs;
+- zygote: ART initializes, preloads classes, resources and libraries, and
+  forks `system_server`, which starts its bootstrap services;
+- blocked on: graphics (SurfaceFlinger needs gfxstream / virtio-gpu) and
+  eBPF (netd).
+
+Speed today: ~40 M guest instructions/s (pure interpreter). Planned: decoded
+block cache, then build-time AOT of profile-selected hot ROM pages.
+
+## Running
+
+```
+tools/fetch-rom.sh                       # ~/aosp/rom13 (once)
+cargo build --profile fast -p idorid-cli
+./target/fast/idorid neo -- /system/bin/sh -c 'echo hi; ls /system'
+IDORID_LOGCAT=1 ./target/fast/idorid neo -- /system/bin/init second_stage
+```
+
+Debug switches: `IDORID_LOGCAT=1` (mirror logd to stderr),
+`IDORID_STRACE=1` (syscalls), `IDORID_TRACE_FAULTS=1` (registers and
+file+offset backtraces for guest faults), `IDORID_PROFILE=out.txt` (hot code
+pages, input for AOT).
+
+`rom-overlay/` holds our patches to the ROM (layered over it read-only):
+64-bit-only zygote, flattened APEX, an fstab without logical partitions, and
+stubs for apexd/bpfloader (and netd until bpf(2) is emulated).
+
 ## ROM
 
 Development uses an AOSP arm64 system image unpacked to a directory
