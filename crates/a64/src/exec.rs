@@ -13,10 +13,10 @@ fn sext(x: u64, n: u32) -> u64 {
 }
 #[inline]
 fn reg(c: &Cpu, r: u32) -> u64 {
-    if r == 31 {
-        0
-    } else {
+    if r < 31 {
         c.x[r as usize]
+    } else {
+        0
     }
 }
 #[inline]
@@ -29,17 +29,17 @@ fn base(c: &Cpu, r: u32) -> u64 {
 }
 #[inline]
 fn put(c: &mut Cpu, r: u32, v: u64, w: bool) {
-    if r != 31 {
+    if r < 31 {
         c.x[r as usize] = if w { v as u32 as u64 } else { v }
     }
 }
 #[inline]
 fn putsp(c: &mut Cpu, r: u32, v: u64, w: bool) {
     let v = if w { v as u32 as u64 } else { v };
-    if r == 31 {
-        c.sp = v
-    } else {
+    if r < 31 {
         c.x[r as usize] = v
+    } else {
+        c.sp = v
     }
 }
 #[inline]
@@ -1103,6 +1103,37 @@ fn execute_cached<A: AddressSpace + ?Sized>(
             put(c, d, v, !sf);
             Ok(None)
         }
+        6 => {
+            let size = i >> 30;
+            let opc = bits(i, 22, 2);
+            let addr = base(c, rn).wrapping_add(op.imm);
+            if opc == 0 {
+                store(c, m, addr, size, reg(c, d))?;
+            } else if opc == 1 {
+                let v = load(c, m, addr, size)?;
+                put(c, d, v, size != 3);
+            } else if size != 3 {
+                let v = sext(load(c, m, addr, size)?, 8 << size);
+                put(c, d, v, opc == 3);
+            }
+            Ok(None)
+        }
+        7 => {
+            if cond(c, i & 15) {
+                c.pc = c.pc.wrapping_add(op.imm);
+                Ok(Some(Exit::Budget))
+            } else {
+                Ok(None)
+            }
+        }
+        8 => {
+            if ((reg(c, d) & mask(width)) != 0) == (i & (1 << 24) != 0) {
+                c.pc = c.pc.wrapping_add(op.imm);
+                Ok(Some(Exit::Budget))
+            } else {
+                Ok(None)
+            }
+        }
         _ => execute(c, m, i),
     }
 }
@@ -1149,57 +1180,62 @@ fn run_cached<A: AddressSpace + ?Sized>(
     cache: &mut crate::base_cache::BlockCache,
 ) -> Exit {
     let end = cpu.retired.saturating_add(budget);
-    let mut successor = None;
-    while cpu.retired < end {
-        cache.sync(mem, cpu);
-        let pc = cpu.pc;
-        if pc & 3 != 0 {
-            let Some(p) = cpu.tlb.lookup(mem, pc, Access::Exec) else {
-                return Exit::Fault {
-                    addr: pc,
-                    access: Access::Exec,
-                };
-            };
-            let insn = unsafe { (p as *const u32).read_unaligned() };
-            match execute(cpu, mem, insn) {
-                Ok(exit) => {
-                    cpu.retired += 1;
-                    match exit {
-                        None => cpu.pc = pc.wrapping_add(4),
-                        Some(Exit::Budget) => {}
-                        Some(e) => return e,
-                    }
-                }
-                Err(e) => return e,
-            };
-            continue;
-        }
-        let block = match cache.get(cpu, mem, pc, successor.take()) {
-            Ok(b) => b,
-            Err(e) => return e,
-        };
-        for op in &block.ops {
-            if cpu.retired >= end {
-                return Exit::Budget;
-            }
+    let mut retired = cpu.retired;
+    let result = (|| {
+        let mut successor = None;
+        while retired < end {
+            cache.sync(mem, cpu);
             let pc = cpu.pc;
-            match execute_cached(cpu, mem, *op) {
-                Ok(exit) => {
-                    cpu.retired += 1;
-                    match exit {
-                        None => cpu.pc = pc.wrapping_add(4),
-                        Some(Exit::Budget) => {
-                            if op.kind == 3 {
-                                successor = block.successor;
-                            }
-                            break;
+            if pc & 3 != 0 {
+                let Some(p) = cpu.tlb.lookup(mem, pc, Access::Exec) else {
+                    return Exit::Fault {
+                        addr: pc,
+                        access: Access::Exec,
+                    };
+                };
+                let insn = unsafe { (p as *const u32).read_unaligned() };
+                match execute(cpu, mem, insn) {
+                    Ok(exit) => {
+                        retired += 1;
+                        match exit {
+                            None => cpu.pc = pc.wrapping_add(4),
+                            Some(Exit::Budget) => {}
+                            Some(e) => return e,
                         }
-                        Some(e) => return e,
                     }
-                }
+                    Err(e) => return e,
+                };
+                continue;
+            }
+            let block = match cache.get(cpu, mem, pc, successor.take()) {
+                Ok(b) => b,
                 Err(e) => return e,
+            };
+            for op in &block.ops {
+                if retired >= end {
+                    return Exit::Budget;
+                }
+                let pc = cpu.pc;
+                match execute_cached(cpu, mem, *op) {
+                    Ok(exit) => {
+                        retired += 1;
+                        match exit {
+                            None => cpu.pc = pc.wrapping_add(4),
+                            Some(Exit::Budget) => {
+                                if op.kind == 3 {
+                                    successor = block.successor;
+                                }
+                                break;
+                            }
+                            Some(e) => return e,
+                        }
+                    }
+                    Err(e) => return e,
+                }
             }
         }
-    }
-    Exit::Budget
+        Exit::Budget
+    })();
+    cpu.retired = retired;
+    result
 }

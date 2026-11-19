@@ -1,0 +1,5 @@
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
+int main(void){uint64_t old;__asm__ volatile("mrs %0,fpcr":"=r"(old));volatile uint64_t in[][2]={{0x3ff0000000000000ULL,0x3ca0000000000000ULL},{0xbff0000000000000ULL,0x3ca0000000000000ULL},{0x3ff0000000000000ULL,0x4008000000000000ULL},{0xbff0000000000000ULL,0x4008000000000000ULL},{0x0010000000000000ULL,0x3fd5555555555555ULL},{0x7fefffffffffffffULL,0x4000000000000000ULL},{0x7fefffffffffffffULL,0x0010000000000000ULL},{0x3ff0000000000000ULL,0xbff0000000000000ULL},{1,0x4000000000000000ULL}};for(int mode=0;mode<4;mode++){uint64_t fpcr=(uint64_t)mode<<22;__asm__ volatile("msr fpcr,%0"::"r"(fpcr):"memory");for(unsigned i=0;i<sizeof(in)/sizeof(in[0]);i++){uint64_t aa=in[i][0],bb=in[i][1];double a,b,r[4];uint64_t out[4];memcpy(&a,&aa,8);memcpy(&b,&bb,8);__asm__ volatile("fadd %d0,%d4,%d5\n\tfsub %d1,%d4,%d5\n\tfmul %d2,%d4,%d5\n\tfdiv %d3,%d4,%d5":"=&w"(r[0]),"=&w"(r[1]),"=&w"(r[2]),"=&w"(r[3]):"w"(a),"w"(b));memcpy(out,r,sizeof out);printf("%d %u %016" PRIx64 " %016" PRIx64 " %016" PRIx64 " %016" PRIx64 "\n",mode,i,out[0],out[1],out[2],out[3]);}}__asm__ volatile("msr fpcr,%0"::"r"(old));}

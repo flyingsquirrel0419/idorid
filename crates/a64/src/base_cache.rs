@@ -33,6 +33,17 @@ impl Op {
         } else if i & 0x7c00_0000 == 0x1400_0000 {
             o.kind = 3;
             o.imm = (((i as u64 & 0x3ff_ffff) << 38) as i64 >> 36) as u64;
+        } else if i & 0x3f00_0000 == 0x3900_0000 {
+            // Integer unsigned-offset load/store; SIMD/FP transfers keep the slow path.
+            o.kind = 6;
+            o.imm = (((i >> 10) & 4095) as u64) << (i >> 30);
+        } else if i & 0xff00_0010 == 0x5400_0000 {
+            o.kind = 7;
+            o.imm = ((((i >> 5) & 0x7ffff) as u64) << 45) as i64 as u64;
+            o.imm = ((o.imm as i64) >> 43) as u64;
+        } else if i & 0x7e00_0000 == 0x3400_0000 {
+            o.kind = 8;
+            o.imm = (((((i >> 5) & 0x7ffff) as u64) << 45) as i64 >> 43) as u64;
         } else if i & 0x1f20_0000 == 0x0b00_0000
             && ((i >> 10) & 63) < if i >> 31 != 0 { 64 } else { 32 }
             && (i >> 22) & 3 != 3

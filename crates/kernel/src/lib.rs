@@ -23,11 +23,13 @@ pub mod elf;
 pub mod errno;
 pub mod fd;
 pub mod futex;
+pub mod goldfish;
 pub mod input;
 pub mod mm;
 pub mod net;
 pub mod procfs;
 pub mod profile;
+pub mod pty;
 pub mod selinux;
 pub mod sync;
 pub mod syscall;
@@ -99,6 +101,7 @@ impl Kernel {
             "/sys/fs/selinux",
             vfs::MountKind::Synthetic(Arc::new(selinux::SelinuxFs::new())),
         );
+        vfs.add_mount("/dev/pts", vfs::MountKind::Synthetic(Arc::new(pty::PtsFs)));
         vfs.add_mount("/proc", vfs::MountKind::Synthetic(Arc::new(procfs::ProcFs)));
         let k = Arc::new(Kernel {
             vfs,
@@ -131,7 +134,27 @@ impl Kernel {
     /// What first-stage init leaves behind for `init second_stage`
     /// (system/core/init/first_stage_init.cpp): /dev skeleton and mount points.
     fn first_stage(&self, state: &Path) {
+        for (f, v) in [
+            ("sys/power/state", "freeze mem\n"),
+            ("sys/power/wakeup_count", "0\n"),
+            ("sys/power/suspend_stats/success", "0\n"),
+            ("sys/kernel/wakeup_reasons/last_resume_reason", ""),
+            ("sys/kernel/wakeup_reasons/last_suspend_time", "0 0\n"),
+            ("sys/kernel/tracing/tracing_on", "0\n"),
+            ("sys/kernel/tracing/buffer_size_kb", "1408\n"),
+            ("sys/kernel/tracing/current_tracer", "nop\n"),
+            ("sys/kernel/tracing/trace_clock", "[local] global boot\n"),
+            ("sys/kernel/tracing/events/enable", "0\n"),
+        ] {
+            let p = state.join(f);
+            let _ = std::fs::create_dir_all(p.parent().unwrap());
+            let _ = std::fs::write(p, v);
+        }
         for d in [
+            "sys/class/wakeup",
+            "sys/fs/fuse/connections",
+            "sys/fs/bpf",
+            "sys/kernel/debug/tracing",
             "dev/socket",
             "dev/pts",
             "dev/dm-user",
@@ -199,6 +222,15 @@ impl Kernel {
                 vfs::S_IFBLK | 0o600,
                 Arc::new(|| fd::NullDev::new(4) as vfs::FileRef),
             );
+        }
+        dev("/dev/ptmx", Arc::new(pty::open_master));
+        dev("/dev/goldfish_pipe", Arc::new(goldfish::open));
+        // tracing: writes to trace_marker are discarded.
+        for p in [
+            "/sys/kernel/tracing/trace_marker",
+            "/sys/kernel/debug/tracing/trace_marker",
+        ] {
+            dev(p, Arc::new(|| fd::NullDev::new(0) as vfs::FileRef));
         }
         dev(
             "/dev/ashmem",

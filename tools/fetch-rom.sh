@@ -56,5 +56,6 @@ for a in "$OUT.tmp"/system/apex/*.apex "$OUT.tmp"/system/apex/*.capex "$OUT.tmp"
   rm -rf "$t"
 done
 python3 "$(dirname "$0")/apex-info-list.py" "$OUT.tmp"
+python3 "$(dirname "$0")/apex-labels.py" "$OUT.tmp"
 rm -rf "$OUT" && mv "$OUT.tmp" "$OUT"
 du -sh "$OUT"; ls "$OUT/apex"

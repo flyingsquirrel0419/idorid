@@ -46,10 +46,6 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
                 let inf = |v: u16| v & 0x7fff == 0x7c00;
                 let special = u && ((zero(x) && inf(elem)) || (zero(elem) && inf(x)));
                 let value = if special {
-                    if flush && ((x & 0x7fff != 0 && zero(x)) || (elem & 0x7fff != 0 && zero(elem)))
-                    {
-                        cpu.fpsr |= 1 << 7;
-                    }
                     ((x ^ elem) & 0x8000) | 0x4000
                 } else {
                     if !crate::fp_half::arithmetic(cpu, word) {
@@ -120,9 +116,6 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         let inf = |v: u16| v & 0x7fff == 0x7c00;
         let special = key == 0x0e40_1c00 && ((zero(x) && inf(y)) || (zero(y) && inf(x)));
         let value = if special {
-            if flush && ((zero(x) && x & 0x7fff != 0) || (zero(y) && y & 0x7fff != 0)) {
-                cpu.fpsr |= 1 << 7;
-            }
             ((x ^ y) & 0x8000) | 0x4000
         } else {
             if !crate::fp_half::arithmetic(cpu, word) {

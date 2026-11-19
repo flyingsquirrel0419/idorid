@@ -1,0 +1,88 @@
+####################################
+# from generate-common-build-props
+# These properties identify this partition image.
+####################################
+ro.product.vendor.brand=Android
+ro.product.vendor.device=emulator64_arm64
+ro.product.vendor.manufacturer=unknown
+ro.product.vendor.model=Android SDK built for arm64
+ro.product.vendor.name=sdk_phone64_arm64
+ro.vendor.product.cpu.abilist=arm64-v8a
+ro.vendor.product.cpu.abilist32=
+ro.vendor.product.cpu.abilist64=arm64-v8a
+ro.vendor.build.date=Thu Oct 12 14:09:32 UTC 2023
+ro.vendor.build.date.utc=1697119772
+ro.vendor.build.fingerprint=Android/sdk_phone64_arm64/emulator64_arm64:13/TE1A.220922.034/10940250:userdebug/test-keys
+ro.vendor.build.id=TE1A.220922.034
+ro.vendor.build.tags=test-keys
+ro.vendor.build.type=userdebug
+ro.vendor.build.version.incremental=10940250
+ro.vendor.build.version.release=13
+ro.vendor.build.version.release_or_codename=13
+ro.vendor.build.version.sdk=33
+####################################
+# from out/target/product/emulator64_arm64/obj/ETC/android_info_prop_intermediates/android_info.prop
+####################################
+####################################
+# from variable ADDITIONAL_VENDOR_PROPERTIES
+####################################
+ro.vndk.version=33
+ro.bionic.arch=arm64
+ro.bionic.cpu_variant=generic
+ro.bionic.2nd_arch=
+ro.bionic.2nd_cpu_variant=generic
+persist.sys.dalvik.vm.lib.2=libart.so
+dalvik.vm.isa.arm64.variant=generic
+dalvik.vm.isa.arm64.features=default
+ro.boot.dynamic_partitions=true
+ro.product.first_api_level=33
+ro.product.debugfs_restrictions.enabled=true
+ro.vendor.build.security_patch=
+ro.product.board=goldfish_arm64
+ro.board.platform=
+ro.hwui.use_vulkan=
+ro.build.ab_update=false
+####################################
+# from variable PRODUCT_VENDOR_PROPERTIES
+####################################
+ro.zygote=zygote64
+# Removed by post_process_props.py because overridden by ro.zygote=zygote64_32
+#ro.zygote?=zygote32
+tombstoned.max_tombstone_count=50
+ro.logd.size.stats=64K
+log.tag.stats_log=I
+ro.carrier=unknown
+ro.config.notification_sound=OnTheHunt.ogg
+ro.config.alarm_alert=Alarm_Classic.ogg
+ro.apex.updatable=true
+dalvik.vm.heapstartsize=8m
+dalvik.vm.heapgrowthlimit=192m
+dalvik.vm.heapsize=512m
+dalvik.vm.heaptargetutilization=0.75
+dalvik.vm.heapminfree=512k
+dalvik.vm.heapmaxfree=8m
+external_storage.projid.enabled=1
+external_storage.casefold.enabled=1
+external_storage.sdcardfs.enabled=0
+graphics.gpu.profiler.support=true
+####################################
+# from variable PRODUCT_DEFAULT_PROPERTY_OVERRIDES
+####################################
+ro.surface_flinger.has_wide_color_display=false
+ro.surface_flinger.has_HDR_display=false
+ro.surface_flinger.use_color_management=false
+ro.surface_flinger.protected_contents=false
+####################################
+# from variable PRODUCT_PROPERTY_OVERRIDES
+####################################
+vendor.rild.libpath=/vendor/lib64/libgoldfish-ril.so
+ro.crypto.dm_default_key.options_format.version=2
+ro.control_privapp_permissions=enforce
+ro.hardware.power=ranchu
+ro.crypto.volume.filenames_mode=aes-256-cts
+persist.sys.zram_enabled=1
+ro.logd.size=1M
+debug.stagefright.c2inputsurface=-1
+debug.stagefright.ccodec=4
+ro.incremental.enable=yes
+# end of file

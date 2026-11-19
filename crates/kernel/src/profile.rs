@@ -24,7 +24,9 @@ impl Profile {
     pub fn sample(&self, mm: &Mm, pc: u64) {
         let key = match mm.vma_at(pc) {
             Some(v) => match &v.backing {
-                Backing::File { offset, .. } => (v.name.to_string(), (offset + (pc - v.start)) & !0xfff),
+                Backing::File { offset, .. } => {
+                    (v.name.to_string(), (offset + (pc - v.start)) & !0xfff)
+                }
                 _ => (format!("[anon:{}]", v.name), (pc - v.start) & !0xfff),
             },
             None => ("[unmapped]".into(), 0),

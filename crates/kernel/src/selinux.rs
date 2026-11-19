@@ -116,7 +116,21 @@ pub fn init(rom: &std::path::Path) {
     });
 }
 
+/// Labels recorded from image xattrs (APEX payloads), see tools/apex-labels.py.
+static XATTR_LABELS: OnceLock<std::collections::HashMap<String, String>> = OnceLock::new();
+
 pub fn file_label(rom: &std::path::Path, path: &str, mode: u32) -> String {
+    let x = XATTR_LABELS.get_or_init(|| {
+        std::fs::read_to_string(rom.join(".idorid-labels"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(p, l)| (p.to_string(), l.to_string()))
+            .collect()
+    });
+    if let Some(l) = x.get(path) {
+        return l.clone();
+    }
     CONTEXTS
         .get_or_init(|| FileContexts::load(rom))
         .lookup(path, mode)

@@ -198,12 +198,20 @@ pub fn run_elf(elf: &[u8], args: &[&str], max_insns: u64) -> Outcome {
     let mut stdout = Vec::new();
     let mut mmap_next = 0x10_0000_0000u64;
     let start_brk = brk;
+    let sampling = std::env::var_os("IDORID_A64_SAMPLE").is_some();
+    let mut samples = [0u64; 16];
     loop {
         let left = max_insns.saturating_sub(cpu.retired);
         if left == 0 {
             panic!("instruction limit reached at pc={:#x}", cpu.pc);
         }
-        match cpu.run(&mem, left) {
+        if sampling {
+            if let Some(bytes) = mem.read(cpu.pc, 4) {
+                let insn = u32::from_le_bytes(bytes.try_into().unwrap());
+                samples[((insn >> 25) & 15) as usize] += 1;
+            }
+        }
+        match cpu.run(&mem, if sampling { left.min(4093) } else { left }) {
             Exit::Budget => continue,
             Exit::Yield => continue,
             Exit::Svc(_) => {
@@ -239,6 +247,12 @@ pub fn run_elf(elf: &[u8], args: &[&str], max_insns: u64) -> Outcome {
                         total
                     }
                     93 | 94 => {
+                        if sampling {
+                            eprintln!(
+                                "opcode top bits 28:25 samples for {}: {:?}",
+                                args[0], samples
+                            );
+                        }
                         return Outcome {
                             stdout,
                             exit_code: a[0] as i32,

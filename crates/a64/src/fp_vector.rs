@@ -2,6 +2,40 @@
 use crate::cpu::Cpu;
 
 pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
+    // SCVTF/UCVTF (integer to FP), scalar and vector forms: reuse the
+    // general-register conversion with a temporarily borrowed x16.
+    if insn & 0xdfbf_fc00 == 0x5e21_d800 || insn & 0x9fbf_fc00 == 0x0e21_d800 {
+        let scalar = insn & (1 << 28) != 0;
+        let q = insn & (1 << 30) != 0;
+        let u = (insn >> 29) & 1;
+        let double = insn & (1 << 22) != 0;
+        if !scalar && double && !q {
+            return false;
+        }
+        let d = (insn & 31) as usize;
+        let n = ((insn >> 5) & 31) as usize;
+        let width = if double { 64 } else { 32 };
+        let lanes = if scalar { 1 } else { (if q { 128 } else { 64 }) / width };
+        let lm = (1u128 << width) - 1;
+        let src = cpu.v[n];
+        let saved_x = cpu.x[16];
+        let saved_v = cpu.v[31];
+        let base = if double { 0x9e62_0000 } else { 0x1e22_0000 };
+        let mut out = 0u128;
+        for i in 0..lanes {
+            cpu.x[16] = ((src >> (i * width)) & lm) as u64;
+            if !crate::fp::exec(cpu, base | (u << 16) | (16 << 5) | 31) {
+                cpu.x[16] = saved_x;
+                cpu.v[31] = saved_v;
+                return false;
+            }
+            out |= (cpu.v[31] & lm) << (i * width);
+        }
+        cpu.x[16] = saved_x;
+        cpu.v[31] = saved_v;
+        cpu.v[d] = out;
+        return true;
+    }
     // Floating multiply and fused multiply-add/subtract by an indexed element.
     if insn & 0x8f80_0400 == 0x0f80_0000 {
         let op = (insn >> 12) & 15;
@@ -437,7 +471,11 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         cpu.v[d] = result;
         return true;
     }
-    let unary = match insn & 0xbfbf_fc00 {
+    let round_n = match insn & 0xbfbf_fc00 {
+        0x0e21_e800=>Some(0x1e28_4000),0x2e21_e800=>Some(0x1e28_c000),
+        0x0e21_f800=>Some(0x1e29_4000),0x2e21_f800=>Some(0x1e29_c000),_=>None,
+    };
+    let unary = round_n.or(match insn & 0xbfbf_fc00 {
         0x0ea0_f800 => Some(0x1e20_c000),
         0x2ea0_f800 => Some(0x1e21_4000),
         0x2ea1_f800 => Some(0x1e21_c000),
@@ -449,7 +487,7 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         0x2e21_9800 => Some(0x1e27_4000),
         0x2ea1_9800 => Some(0x1e27_c000),
         _ => None,
-    };
+    });
     if let Some(op) = unary {
         let q = insn & (1 << 30) != 0;
         let double = insn & (1 << 22) != 0;

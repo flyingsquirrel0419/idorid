@@ -6,11 +6,11 @@ use crate::fd::OpenFile;
 use crate::mm::SharedMem;
 use crate::sync::WaitQueue;
 use crate::task::Ctx;
-use crate::vfs::{Node, POLLIN, POLLOUT, Result, S_IFCHR, Stat, new_id};
+use crate::vfs::{new_id, Node, Result, Stat, POLLIN, POLLOUT, S_IFCHR};
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const fn ioc(dir: u32, ty: u32, nr: u32, size: u32) -> u32 {
@@ -58,13 +58,19 @@ struct Proc {
     base: u64,
     size: u64,
     free: BTreeMap<u64, u64>,
-    allocated: HashMap<u64, (u64, Option<u64>)>,
+    allocated: HashMap<u64, Allocation>,
     threads: HashMap<i32, Thread>,
     todo: VecDeque<Work>,
     max_threads: u32,
     spawn_requested: u32,
     handles: BTreeMap<u32, BinderRef>,
     wq: Option<Arc<WaitQueue>>,
+}
+struct Allocation {
+    len: u64,
+    async_node: Option<u64>,
+    refs: Vec<(u32, bool)>,
+    fd_array: Vec<i32>,
 }
 struct BinderNode {
     owner: u64,
@@ -100,6 +106,7 @@ enum Work {
         prepared: Prepared,
         secctx: Option<Vec<u8>>,
         async_node: Option<u64>,
+        refs: Vec<(u32, bool)>,
     },
 }
 
@@ -108,7 +115,7 @@ struct Prepared {
     extra: Vec<u8>,
     // Destination offset in the complete buffer, target offset in `extra`.
     pointers: Vec<(usize, usize)>,
-    fds: Vec<(usize, Arc<OpenFile>)>,
+    fds: Vec<(usize, Arc<OpenFile>, bool)>,
 }
 
 pub struct Binder {
@@ -200,7 +207,39 @@ impl Binder {
                 let mut s = self.context.state.lock();
                 let p = s.procs.get_mut(&self.id).ok_or(ECONNREFUSED)?;
                 let t = p.threads.entry(ctx.thread.tid).or_default();
-                t.todo.pop_front().or_else(|| p.todo.pop_front())
+                let (work, thread_work) = if let Some(work) = t.todo.pop_front() {
+                    (Some(work), true)
+                } else {
+                    (p.todo.pop_front(), false)
+                };
+                if let Some(work) = work {
+                    let size = match &work {
+                        Work::Command(_) => 4,
+                        Work::Bytes(bytes) => bytes.len(),
+                        Work::Transaction { secctx, .. } => {
+                            if secctx.is_some() {
+                                76
+                            } else {
+                                68
+                            }
+                        }
+                    };
+                    if size as u64 > rs - rc {
+                        if thread_work {
+                            p.threads
+                                .entry(ctx.thread.tid)
+                                .or_default()
+                                .todo
+                                .push_front(work);
+                        } else {
+                            p.todo.push_front(work);
+                        }
+                        return Err(ENOSPC);
+                    }
+                    Some(work)
+                } else {
+                    None
+                }
             };
             if let Some(work) = work {
                 let out = self.receive(ctx, work)?;
@@ -277,16 +316,12 @@ impl Binder {
             };
             let prepared = match prepare_objects(ctx, &data, &offsets, sg_size) {
                 Ok(prepared) => prepared,
-                Err(_) => {
+                Err(error) => {
+                    if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                        eprintln!("binder pid={} invalid objects: {}", ctx.process.pid, error);
+                    }
                     let mut s = self.context.state.lock();
-                    s.procs
-                        .get_mut(&self.id)
-                        .ok_or(ECONNREFUSED)?
-                        .threads
-                        .entry(tid)
-                        .or_default()
-                        .todo
-                        .push_back(Work::Command(FAILED_REPLY));
+                    fail_transaction(&mut s, self.id, tid, reply, None);
                     drop(s);
                     self.wq.notify();
                     return Ok(());
@@ -322,11 +357,20 @@ impl Binder {
                     .and_then(|t| t.stack.pop())
                     .map(|(p, t, allow)| (p, t, allow))
             } else if get32(b, 0) == 0 {
-                s.manager.map(|id| (id, 0, true))
+                s.manager.map(|id| {
+                    (
+                        id,
+                        0,
+                        s.manager_node
+                            .and_then(|n| s.nodes.get(&n))
+                            .is_some_and(|n| n.flags & 0x100 != 0),
+                    )
+                })
             } else {
                 s.procs
                     .get(&self.id)
                     .and_then(|p| p.handles.get(&get32(b, 0)))
+                    .filter(|r| r.strong > 0)
                     .and_then(|r| s.nodes.get(&r.node))
                     .map(|node| (node.owner, 0, node.flags & 0x100 != 0))
             };
@@ -359,6 +403,44 @@ impl Binder {
                         target_tid = *waiting_tid;
                     }
                 }
+                if !allow_fds && !prepared.fds.is_empty() {
+                    fail_transaction(
+                        &mut s,
+                        self.id,
+                        tid,
+                        reply,
+                        Some((to, target_tid, allow_fds)),
+                    );
+                    drop(s);
+                    self.wq.notify();
+                    return Ok(());
+                }
+                let oneway = get32(b, 20) & 1 != 0;
+                let from = (!reply && !oneway).then_some((self.id, tid, get32(b, 20) & 0x10 != 0));
+                let mut refs = Vec::new();
+                if let Err(error) =
+                    translate_objects(&mut s, self.id, to, &mut data, &offsets, &mut refs)
+                {
+                    for (handle, weak) in refs {
+                        let _ = change_ref(&mut s, to, handle, bc(if weak { 7 } else { 6 }, 4));
+                    }
+                    if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
+                        eprintln!(
+                            "binder pid={} object translation failed: {}",
+                            ctx.process.pid, error
+                        );
+                    }
+                    fail_transaction(
+                        &mut s,
+                        self.id,
+                        tid,
+                        reply,
+                        Some((to, target_tid, allow_fds)),
+                    );
+                    drop(s);
+                    self.wq.notify();
+                    return Ok(());
+                }
                 if reply {
                     if let Some(thread) = s
                         .procs
@@ -367,23 +449,7 @@ impl Binder {
                     {
                         thread.waiting_on = None;
                     }
-                }
-                if !allow_fds && !prepared.fds.is_empty() {
-                    s.procs
-                        .get_mut(&self.id)
-                        .unwrap()
-                        .threads
-                        .entry(tid)
-                        .or_default()
-                        .todo
-                        .push_back(Work::Command(FAILED_REPLY));
-                    drop(s);
-                    self.wq.notify();
-                    return Ok(());
-                }
-                let oneway = get32(b, 20) & 1 != 0;
-                let from = (!reply && !oneway).then_some((self.id, tid, get32(b, 20) & 0x10 != 0));
-                if from.is_some() {
+                } else if from.is_some() {
                     s.procs
                         .get_mut(&self.id)
                         .unwrap()
@@ -391,24 +457,6 @@ impl Binder {
                         .entry(tid)
                         .or_default()
                         .waiting_on = Some(to);
-                }
-                if let Err(error) = translate_objects(&mut s, self.id, to, &mut data, &offsets) {
-                    if std::env::var_os("IDORID_BINDER_TRACE").is_some() {
-                        eprintln!(
-                            "binder pid={} object translation failed: {}",
-                            ctx.process.pid, error
-                        );
-                    }
-                    s.procs
-                        .get_mut(&self.id)
-                        .unwrap()
-                        .threads
-                        .entry(tid)
-                        .or_default()
-                        .todo
-                        .push_back(Work::Command(FAILED_REPLY));
-                    self.wq.notify();
-                    return Ok(());
                 }
                 let (ptr, cookie, flags) = target_node.unwrap_or((0, 0, 0));
                 let secctx = if !reply && flags & 0x1000 != 0 {
@@ -433,6 +481,7 @@ impl Binder {
                     } else {
                         None
                     },
+                    refs,
                 };
                 let already_active = if oneway && !reply {
                     if let Some(node) = target_node_id.and_then(|id| s.nodes.get_mut(&id)) {
@@ -506,7 +555,8 @@ impl Binder {
             let mut s = self.context.state.lock();
             let p = s.procs.get_mut(&self.id).ok_or(ECONNREFUSED)?;
             let off = addr.checked_sub(p.base).ok_or(EINVAL)?;
-            let (len, async_node) = p.allocated.remove(&off).ok_or(EINVAL)?;
+            let allocation = p.allocated.remove(&off).ok_or(EINVAL)?;
+            let len = allocation.len;
             let mut start = off;
             let mut total = len;
             if let Some((&prev, &prev_len)) = p.free.range(..off).next_back() {
@@ -523,7 +573,10 @@ impl Binder {
                 }
             }
             p.free.insert(start, total);
-            if let Some(id) = async_node {
+            for (handle, weak) in allocation.refs {
+                let _ = change_ref(&mut s, self.id, handle, bc(if weak { 7 } else { 6 }, 4));
+            }
+            if let Some(id) = allocation.async_node {
                 if let Some(node) = s.nodes.get_mut(&id) {
                     let next = node.async_todo.pop_front();
                     node.async_active = next.is_some();
@@ -532,6 +585,14 @@ impl Binder {
                         p.todo.push_back(work);
                         self.wq.notify();
                     }
+                }
+            }
+            drop(s);
+            if !allocation.fd_array.is_empty() {
+                let fds = ctx.process.fds();
+                let mut table = fds.lock();
+                for fd in allocation.fd_array {
+                    let _ = table.close(fd);
                 }
             }
         } else if [bc(4, 4), bc(5, 4), bc(6, 4), bc(7, 4)].contains(&cmd) {
@@ -600,6 +661,7 @@ impl Binder {
                 prepared,
                 secctx,
                 async_node,
+                refs,
             } => {
                 let data_aligned = (data.len() as u64 + 7) & !7;
                 let extra_start = (data_aligned + offsets.len() as u64 + 7) & !7;
@@ -618,7 +680,15 @@ impl Binder {
                     if size > len {
                         p.free.insert(off + len, size - len);
                     }
-                    p.allocated.insert(off, (len, async_node));
+                    p.allocated.insert(
+                        off,
+                        Allocation {
+                            len,
+                            async_node,
+                            refs,
+                            fd_array: Vec::new(),
+                        },
+                    );
                     if let Some(sender) = from {
                         p.threads
                             .entry(ctx.thread.tid)
@@ -644,10 +714,14 @@ impl Binder {
                 let table = ctx.process.fds();
                 let mut table = table.lock();
                 let mut installed = Vec::new();
-                for (where_, file) in prepared.fds {
+                let mut fd_array = Vec::new();
+                for (where_, file, is_array) in prepared.fds {
                     match table.insert(file, true) {
                         Ok(fd) => {
                             installed.push(fd);
+                            if is_array {
+                                fd_array.push(fd);
+                            }
                             put32(&mut combined, where_, fd as u32);
                         }
                         Err(error) => {
@@ -659,6 +733,16 @@ impl Binder {
                     }
                 }
                 drop(table);
+                if !fd_array.is_empty() {
+                    let mut s = self.context.state.lock();
+                    if let Some(allocation) = s
+                        .procs
+                        .get_mut(&self.id)
+                        .and_then(|p| p.allocated.get_mut(&off))
+                    {
+                        allocation.fd_array = fd_array;
+                    }
+                }
                 if let Some(sec) = &secctx {
                     combined[sec_start as usize..sec_start as usize + sec.len()]
                         .copy_from_slice(sec);
@@ -704,10 +788,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
     let mut previous_end = 0;
     for (index, chunk) in offsets.chunks_exact(8).enumerate() {
         let off = u64::from_le_bytes(chunk.try_into().unwrap()) as usize;
-        if off % 8 != 0
-            || off < previous_end
-            || off.checked_add(24).is_none_or(|end| end > data.len())
-        {
+        if off < previous_end || off.checked_add(24).is_none_or(|end| end > data.len()) {
             return Err(EINVAL);
         }
         let typ = get32(data, off);
@@ -742,10 +823,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
                 let parent = usize::try_from(get64(data, off + 24)).map_err(|_| EINVAL)?;
                 let parent_off = usize::try_from(get64(data, off + 32)).map_err(|_| EINVAL)?;
                 let (base, parent_len) = *parents.get(&parent).ok_or(EINVAL)?;
-                if parent >= index
-                    || parent_off % 8 != 0
-                    || parent_off.checked_add(8).is_none_or(|v| v > parent_len)
-                {
+                if parent >= index || parent_off.checked_add(8).is_none_or(|v| v > parent_len) {
                     return Err(EINVAL);
                 }
                 prepared
@@ -754,7 +832,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
             }
         } else if typ == TYPE_FD {
             let file = ctx.process.fds().lock().get(get32(data, off + 8) as i32)?;
-            prepared.fds.push((off + 8, file));
+            prepared.fds.push((off + 8, file, false));
         } else if typ == TYPE_FDA {
             let count = usize::try_from(get64(data, off + 8)).map_err(|_| EINVAL)?;
             let parent = usize::try_from(get64(data, off + 16)).map_err(|_| EINVAL)?;
@@ -776,6 +854,7 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
                 prepared.fds.push((
                     extra_start + pos,
                     table.get(get32(&prepared.extra, pos) as i32)?,
+                    true,
                 ));
             }
         } else if ![TYPE_BINDER, TYPE_WEAK_BINDER, TYPE_HANDLE, TYPE_WEAK_HANDLE].contains(&typ) {
@@ -789,33 +868,95 @@ fn cookie_work(number: u32, cookie: u64) -> Work {
     bytes.extend_from_slice(&cookie.to_le_bytes());
     Work::Bytes(bytes)
 }
+fn fail_transaction(
+    s: &mut State,
+    proc_id: u64,
+    tid: i32,
+    reply: bool,
+    target: Option<(u64, i32, bool)>,
+) {
+    let target = if reply {
+        target.or_else(|| {
+            s.procs
+                .get_mut(&proc_id)
+                .and_then(|p| p.threads.get_mut(&tid))
+                .and_then(|t| t.stack.pop())
+        })
+    } else {
+        None
+    };
+    if let Some((to, to_tid, _)) = target {
+        if let Some(p) = s.procs.get_mut(&to) {
+            if let Some(t) = p.threads.get_mut(&to_tid) {
+                t.waiting_on = None;
+                t.todo.push_back(Work::Command(FAILED_REPLY));
+            }
+            if let Some(wq) = &p.wq {
+                wq.notify();
+            }
+        }
+    }
+    if let Some(p) = s.procs.get_mut(&proc_id) {
+        p.threads
+            .entry(tid)
+            .or_default()
+            .todo
+            .push_back(Work::Command(if reply { COMPLETE } else { FAILED_REPLY }));
+        if let Some(wq) = &p.wq {
+            wq.notify();
+        }
+    }
+}
+fn node_counts(s: &State, node: u64) -> (u64, u64) {
+    s.procs
+        .values()
+        .flat_map(|p| p.handles.values())
+        .filter(|r| r.node == node)
+        .fold((0, 0), |(strong, total), r| {
+            (
+                strong + r.strong as u64,
+                total + r.strong as u64 + r.weak as u64,
+            )
+        })
+}
 fn change_ref(s: &mut State, proc_id: u64, handle: u32, cmd: u32) -> Result<()> {
     if handle == 0 {
         return Ok(());
     }
+    let node_id = s
+        .procs
+        .get(&proc_id)
+        .and_then(|p| p.handles.get(&handle))
+        .map(|r| r.node)
+        .ok_or(EINVAL)?;
+    let (old_strong, old_total) = node_counts(s, node_id);
     let reference = s
         .procs
         .get_mut(&proc_id)
         .and_then(|p| p.handles.get_mut(&handle))
         .ok_or(EINVAL)?;
-    let node_id = reference.node;
-    let old_strong = reference.strong;
-    let old_total = reference.strong.saturating_add(reference.weak);
     match cmd {
         c if c == bc(4, 4) => reference.weak = reference.weak.saturating_add(1),
         c if c == bc(5, 4) => reference.strong = reference.strong.saturating_add(1),
         c if c == bc(6, 4) => reference.strong = reference.strong.saturating_sub(1),
         _ => reference.weak = reference.weak.saturating_sub(1),
     }
-    let new_strong = reference.strong;
-    let new_total = reference.strong.saturating_add(reference.weak);
+    let remove = reference.strong == 0 && reference.weak == 0 && reference.death.is_none();
+    if remove {
+        s.procs.get_mut(&proc_id).unwrap().handles.remove(&handle);
+    }
+    notify_ref_change(s, node_id, (old_strong, old_total))?;
+    Ok(())
+}
+fn notify_ref_change(s: &mut State, node_id: u64, old: (u64, u64)) -> Result<()> {
+    let (new_strong, new_total) = node_counts(s, node_id);
     let node = s.nodes.get(&node_id).ok_or(EINVAL)?;
     let (owner, ptr, cookie) = (node.owner, node.ptr, node.cookie);
     for (needed, number) in [
-        (old_total == 0 && new_total > 0, 7),
-        (old_strong == 0 && new_strong > 0, 8),
-        (old_strong > 0 && new_strong == 0, 9),
-        (old_total > 0 && new_total == 0, 10),
+        (old.1 == 0 && new_total > 0, 7),
+        (old.0 == 0 && new_strong > 0, 8),
+        (old.0 > 0 && new_strong == 0, 9),
+        (old.1 > 0 && new_total == 0, 10),
     ] {
         if needed {
             let mut bytes = br(number, 16).to_le_bytes().to_vec();
@@ -839,14 +980,12 @@ fn translate_objects(
     to: u64,
     data: &mut [u8],
     offsets: &[u8],
+    refs: &mut Vec<(u32, bool)>,
 ) -> Result<()> {
     let mut previous_end = 0usize;
     for chunk in offsets.chunks_exact(8) {
         let offset = u64::from_le_bytes(chunk.try_into().unwrap()) as usize;
-        if offset % 8 != 0
-            || offset < previous_end
-            || offset.checked_add(24).is_none_or(|end| end > data.len())
-        {
+        if offset < previous_end || offset.checked_add(24).is_none_or(|end| end > data.len()) {
             return Err(EINVAL);
         }
         let typ = get32(data, offset);
@@ -898,11 +1037,16 @@ fn translate_objects(
             }
         } else if typ == TYPE_HANDLE || typ == TYPE_WEAK_HANDLE {
             let handle = get32(data, offset + 8);
-            s.procs
-                .get(&from)
-                .and_then(|p| p.handles.get(&handle))
-                .map(|r| r.node)
-                .ok_or(EINVAL)?
+            if handle == 0 {
+                s.manager_node.ok_or(EINVAL)?
+            } else {
+                s.procs
+                    .get(&from)
+                    .and_then(|p| p.handles.get(&handle))
+                    .filter(|r| weak || r.strong > 0)
+                    .map(|r| r.node)
+                    .ok_or(EINVAL)?
+            }
         } else {
             return Err(EINVAL);
         };
@@ -938,14 +1082,9 @@ fn translate_objects(
                     );
                     h
                 };
-            let reference = target.handles.get_mut(&handle).unwrap();
-            let first_weak = reference.weak == 0 && reference.strong == 0;
-            let first_strong = !weak && reference.strong == 0;
-            if weak {
-                reference.weak += 1;
-            } else {
-                reference.strong += 1;
-            }
+            let _ = target;
+            change_ref(s, to, handle, bc(if weak { 4 } else { 5 }, 4))?;
+            refs.push((handle, weak));
             put32(
                 data,
                 offset,
@@ -953,19 +1092,6 @@ fn translate_objects(
             );
             put64(data, offset + 8, handle as u64);
             put64(data, offset + 16, 0);
-            for (needed, command) in [(first_weak, br(7, 16)), (first_strong, br(8, 16))] {
-                if needed {
-                    let mut bytes = command.to_le_bytes().to_vec();
-                    bytes.extend_from_slice(&ptr.to_le_bytes());
-                    bytes.extend_from_slice(&cookie.to_le_bytes());
-                    if let Some(proc_) = s.procs.get_mut(&owner) {
-                        proc_.todo.push_back(Work::Bytes(bytes));
-                        if let Some(wq) = &proc_.wq {
-                            wq.notify();
-                        }
-                    }
-                }
-            }
         }
     }
     Ok(())
@@ -999,7 +1125,7 @@ impl Node for Binder {
     }
     fn mmapped(&self, ctx: &Ctx, addr: u64, len: u64, offset: u64) -> Result<()> {
         self.bind(ctx)?;
-        if offset != 0 || len == 0 || len > 4 * 1024 * 1024 {
+        if offset != 0 || len == 0 || len > 16 * 1024 * 1024 {
             return Err(EINVAL);
         }
         let mut s = self.context.state.lock();
@@ -1061,14 +1187,28 @@ impl Node for Binder {
                 Ok(0)
             }
             THREAD_EXIT => {
-                self.context
-                    .state
-                    .lock()
+                let mut s = self.context.state.lock();
+                let thread = s
                     .procs
                     .get_mut(&self.id)
                     .ok_or(ECONNREFUSED)?
                     .threads
                     .remove(&ctx.thread.tid);
+                if let Some(thread) = &thread {
+                    for &(sender, tid, _) in &thread.stack {
+                        if let Some(p) = s.procs.get_mut(&sender) {
+                            if let Some(t) = p.threads.get_mut(&tid) {
+                                t.waiting_on = None;
+                                t.todo.push_back(Work::Command(DEAD_REPLY));
+                            }
+                            if let Some(wq) = &p.wq {
+                                wq.notify();
+                            }
+                        }
+                    }
+                }
+                drop(s);
+                drop(thread);
                 Ok(0)
             }
             c if c == ioc(1, b'b' as u32, 3, 8)
@@ -1124,12 +1264,31 @@ impl Node for Binder {
     }
     fn release(&self) {
         let mut s = self.context.state.lock();
+        let ref_nodes: Vec<u64> = s
+            .procs
+            .get(&self.id)
+            .map(|p| p.handles.values().map(|r| r.node).collect())
+            .unwrap_or_default();
+        let mut counts = HashMap::new();
+        for node in ref_nodes {
+            counts.entry(node).or_insert_with(|| node_counts(&s, node));
+        }
         let removed = s.procs.remove(&self.id);
+        for (node, old) in counts {
+            let _ = notify_ref_change(&mut s, node, old);
+        }
         let dead_nodes: Vec<u64> = s
             .nodes
             .iter()
             .filter_map(|(&id, n)| (n.owner == self.id).then_some(id))
             .collect();
+        let mut abandoned = Vec::new();
+        for id in &dead_nodes {
+            if let Some(node) = s.nodes.get_mut(id) {
+                abandoned.extend(node.async_todo.drain(..));
+                node.async_active = false;
+            }
+        }
         for proc_ in s.procs.values_mut() {
             for reference in proc_.handles.values() {
                 if dead_nodes.contains(&reference.node) {
@@ -1154,6 +1313,7 @@ impl Node for Binder {
         }
         drop(s);
         drop(removed);
+        drop(abandoned);
         self.wq.notify();
     }
     fn as_any(&self) -> &dyn std::any::Any {

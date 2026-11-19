@@ -237,3 +237,52 @@ fn differential_structures() {
 fn differential_narrowing_add_subtract() {
     support::differential("simd_addhn", &["-O2"]);
 }
+
+#[test]
+fn differential_half_flush() {
+    support::differential("fp_half_flush", &["-O2", "-march=armv8.2-a+fp16"]);
+}
+
+#[test]
+fn differential_negated_multiply() {
+    support::differential("fp_negmul", &["-O2"]);
+}
+
+#[test]
+fn differential_round_integer_range() {
+    support::differential("fp_round_intsize", &["-O2", "-march=armv8.5-a"]);
+}
+
+#[test]
+fn differential_directed_arithmetic() {
+    support::differential("fp_directed", &["-O2"]);
+}
+
+#[test]
+fn differential_sqrt_rounding() {
+    support::differential("fp_sqrt_modes", &["-O2"]);
+}
+
+#[test]
+fn differential_int_to_fp_conversions() {
+    support::differential("simd_cvtf", &["-O2"]);
+}
+
+#[test]
+fn differential_modified_immediate() {
+    support::differential("simd_movi", &["-O2"]);
+}
+
+#[test]
+fn movi_shifted_word() {
+    let mem = Memory(UnsafeCell::new([0; 4096]));
+    for (i, word) in [0x0f0567eau32, 0xd4200000].iter().enumerate() {
+        unsafe {
+            (&mut *mem.0.get())[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    }
+    let mut cpu = Cpu::new();
+    cpu.v[10] = u128::MAX;
+    assert_eq!(cpu.run(&mem, 10), Exit::Brk(0));
+    assert_eq!(cpu.v[10], 0xbf00_0000_bf00_0000);
+}

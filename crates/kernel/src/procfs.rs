@@ -244,6 +244,9 @@ impl SyntheticFs for ProcFs {
                 let u = crate::time::monotonic().as_secs_f64();
                 return file(format!("{u:.2} {u:.2}\n"));
             }
+            "zoneinfo" => return file("Node 0, zone   Normal\n  pages free     500000\n        min      5000\n        low      6000\n        high     7000\n        spanned  1000000\n        present  1000000\n        managed  1000000\n    nr_free_pages 500000\n  protection: (0, 0, 0)\n"),
+            "vmstat" => return file("nr_free_pages 500000\nnr_inactive_file 10000\nnr_active_file 10000\nnr_inactive_anon 10000\nnr_active_anon 10000\npgfault 0\npgmajfault 0\nworkingset_refault_file 0\n"),
+            "keys" | "kallsyms" | "modules" | "swaps" | "interrupts" | "softirqs" | "partitions" | "diskstats" | "bootconfig" | "kmsg" => return file(""),
             "version" => return file("Linux version 5.15.110-idorid (idorid@neo) #1 SMP PREEMPT\n"),
             "loadavg" => return file("0.00 0.00 0.00 1/64 1\n"),
             "cmdline" => return file("androidboot.hardware=ranchu androidboot.selinux=permissive androidboot.qemu=1 qemu=1 androidboot.hardware.gltransport=pipe\n"),

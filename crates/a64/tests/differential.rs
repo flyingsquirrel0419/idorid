@@ -308,4 +308,15 @@ fn cached_blocks_budget_fault_and_generation() {
     c.pc = 0x1000;
     assert_eq!(c.run(&mem, 1), Exit::Budget);
     assert_eq!(c.x[0], 7);
+    // A generation bump also invalidates cached execute permission.
+    mem.map(0x1000, 0x1000, 3);
+    c.pc = 0x1000;
+    assert_eq!(
+        c.run(&mem, 1),
+        Exit::Fault {
+            addr: 0x1000,
+            access: Access::Exec
+        }
+    );
+    assert_eq!(c.retired, 3);
 }

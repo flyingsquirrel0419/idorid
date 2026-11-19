@@ -204,6 +204,9 @@ impl UnixSocket {
                 EPIPE
             });
         }
+        if *LOGCAT && target.name.lock().as_deref() == Some("/dev/socket/logdw") {
+            mirror_log(data, cred.pid);
+        }
         target.deliver(Msg {
             data: data.to_vec(),
             off: 0,
@@ -1062,4 +1065,32 @@ fn recv(ctx: &Ctx, nr: u64, a: [u64; 6]) -> Result<i64> {
     } else {
         d.len()
     } as i64)
+}
+
+static LOGCAT: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var_os("IDORID_LOGCAT").is_some());
+
+/// Prints a logd write packet (android_log_header_t + prio/tag/msg) to stderr.
+fn mirror_log(data: &[u8], pid: i32) {
+    if data.len() < 12 {
+        return;
+    }
+    let id = data[0];
+    if id == 2 || id == 6 {
+        return; // events / security (binary)
+    }
+    let body = &data[11..];
+    let prio = body[0];
+    let rest = &body[1..];
+    let mut parts = rest.splitn(2, |&b| b == 0);
+    let tag = String::from_utf8_lossy(parts.next().unwrap_or_default());
+    let msg = String::from_utf8_lossy(parts.next().unwrap_or_default());
+    let p = ['?', '?', 'V', 'D', 'I', 'W', 'E', 'F', 'S']
+        .get(prio as usize)
+        .copied()
+        .unwrap_or('?');
+    eprintln!(
+        "[log] {p} {pid} {tag}: {}",
+        msg.trim_end_matches(['\0', '\n'])
+    );
 }

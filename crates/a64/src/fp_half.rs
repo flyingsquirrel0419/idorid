@@ -42,7 +42,6 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
         } else if exp == 0 && frac == 0 {
             sign
         } else if exp == 0 && arithmetic && cpu.fpcr & (1 << 19) != 0 {
-            cpu.fpsr |= 1 << 7;
             sign
         } else {
             let val = if exp == 0 {
@@ -121,6 +120,9 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
         let mode = (cpu.fpcr >> 22) & 3;
         if abs == 0.0 {
             sign16
+        } else if arithmetic && cpu.fpcr & (1 << 19) != 0 && abs < 2f64.powi(-14) {
+            cpu.fpsr |= 1 << 3;
+            sign16
         } else if alternate && abs >= 131072.0 {
             cpu.fpsr |= 1;
             sign16 | 0x7fff
@@ -183,7 +185,7 @@ pub(crate) fn arithmetic(cpu: &mut Cpu, insn: u32) -> bool {
         } as u128;
         return true;
     }
-    let binary = insn & 0xff20_0c00 == 0x1e20_0800 && (insn >> 12) & 15 <= 7;
+    let binary = insn & 0xff20_0c00 == 0x1e20_0800 && (insn >> 12) & 15 <= 8;
     let sqrt = unary == 0x1e21_c000;
     let fused = insn & 0xff00_0000 == 0x1f00_0000;
     let compare = insn & 0xff20_fc07 == 0x1e20_2000;
@@ -191,6 +193,7 @@ pub(crate) fn arithmetic(cpu: &mut Cpu, insn: u32) -> bool {
         return false;
     }
     let original_fpcr = cpu.fpcr;
+    let original_fpsr = cpu.fpsr;
     cpu.fpcr &= !(1 << 26);
     let a = cpu.v[n] as u16;
     let b = cpu.v[m] as u16;
@@ -225,6 +228,10 @@ pub(crate) fn arithmetic(cpu: &mut Cpu, insn: u32) -> bool {
     };
     let ok = crate::fp::exec(cpu, synthetic);
     let result = if ok && !compare {
+        let value = f64::from_bits(cpu.v[31] as u64);
+        if cpu.fpcr & (1 << 19) != 0 && value != 0.0 && value.is_finite() && value.abs() < 2f64.powi(-14) {
+            cpu.fpsr = (cpu.fpsr & !(1 << 4)) | (original_fpsr & (1 << 4));
+        }
         let _ = convert(cpu, 0x1e63_c000 | (31 << 5) | 31, true);
         cpu.v[31]
     } else {

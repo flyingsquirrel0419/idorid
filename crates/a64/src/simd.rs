@@ -896,7 +896,7 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
     }
     // Saturating left shifts by an immediate, including signed-to-unsigned.
     let sat_shift = insn & 0x8f80_fc00;
-    if matches!(sat_shift, 0x0f00_7400 | 0x0f00_6400) {
+    if matches!(sat_shift, 0x0f00_7400 | 0x0f00_6400) && (insn >> 19) & 15 != 0 {
         let imm = (insn >> 16) & 127;
         if imm < 8 {
             return false;
@@ -1015,7 +1015,8 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
         }
     }
     // SSHLL/USHLL, including the high-half forms.
-    if insn & 0x9f80_fc00 == 0x0f00_a400 {
+    // (immh == 0 is the modified-immediate group, handled below.)
+    if insn & 0x9f80_fc00 == 0x0f00_a400 && (insn >> 19) & 15 != 0 {
         let imm = (insn >> 16) & 127;
         if !(8..64).contains(&imm) {
             return false;

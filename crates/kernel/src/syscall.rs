@@ -1356,8 +1356,20 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
                 EFAULT
             }
         }
-        125 => 99,
-        126 => 0,
+        125 => {
+            if a[0] == 1 || a[0] == 2 {
+                99
+            } else {
+                0
+            }
+        } // sched_get_priority_max
+        126 => {
+            if a[0] == 1 || a[0] == 2 {
+                1
+            } else {
+                0
+            }
+        } // sched_get_priority_min
         168 => {
             if a[0] != 0 {
                 mm.write_u32(a[0], 0);
@@ -1635,7 +1647,9 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
         }
         110 | 108 => {
             // timer_settime(id, flags, new*, old*) / timer_gettime(id, cur*)
-            let Some(t) = TIMERS.lock().get(a[0] as usize).cloned().flatten() else { return EINVAL };
+            let Some(t) = TIMERS.lock().get(a[0] as usize).cloned().flatten() else {
+                return EINVAL;
+            };
             let out = if nr == 108 { a[1] } else { a[3] };
             if out != 0 {
                 let (i, v) = t.get();
@@ -1643,7 +1657,10 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
                 write_timespec(ctx, out + 16, v);
             }
             if nr == 110 {
-                let (Ok(i), Ok(v)) = (read_timespec(ctx, a[2]), read_timespec(ctx, a[2] + 16)) else { return EFAULT };
+                let (Ok(i), Ok(v)) = (read_timespec(ctx, a[2]), read_timespec(ctx, a[2] + 16))
+                else {
+                    return EFAULT;
+                };
                 t.set(i, v, a[1] & 1 != 0);
             }
             0
@@ -3291,7 +3308,8 @@ pub struct PosixTimer {
     wake: Arc<crate::sync::WaitQueue>,
 }
 
-static TIMERS: std::sync::LazyLock<Mutex<Vec<Option<Arc<PosixTimer>>>>> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+static TIMERS: std::sync::LazyLock<Mutex<Vec<Option<Arc<PosixTimer>>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 impl PosixTimer {
     fn new(ctx: &Ctx, signo: u32, notify: i32, tid: i32) -> Arc<PosixTimer> {
@@ -3325,7 +3343,10 @@ impl PosixTimer {
                     Some(n) => {
                         let wq = t.wake.clone();
                         drop(t);
-                        wq.wait_change(seen, Some(n.min(Instant::now() + Duration::from_millis(100))));
+                        wq.wait_change(
+                            seen,
+                            Some(n.min(Instant::now() + Duration::from_millis(100))),
+                        );
                     }
                     None => {
                         let wq = t.wake.clone();
@@ -3342,7 +3363,9 @@ impl PosixTimer {
         if self.notify == 1 {
             return;
         }
-        let (Some(k), Some(p)) = (self.kernel.upgrade(), self.process.upgrade()) else { return };
+        let (Some(k), Some(p)) = (self.kernel.upgrade(), self.process.upgrade()) else {
+            return;
+        };
         let info = SigInfo::simple(self.signo, -2, 0, 0); // SI_TIMER
         if self.notify == 4 {
             if let Some(t) = k.threads.lock().get(&self.tid).cloned() {
@@ -3365,6 +3388,10 @@ impl PosixTimer {
     }
     fn get(&self) -> (Duration, Duration) {
         let s = self.state.lock();
-        (s.1, s.0.map(|n| n.saturating_duration_since(Instant::now())).unwrap_or_default())
+        (
+            s.1,
+            s.0.map(|n| n.saturating_duration_since(Instant::now()))
+                .unwrap_or_default(),
+        )
     }
 }

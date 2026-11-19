@@ -63,15 +63,15 @@ int main(void) {
  struct { uint32_t type, flags; uint64_t fd, cookie; } fobj={0x66642a85,0,0,0};
  struct { uint32_t type, flags; uint64_t ptr,len,parent,parent_off; } pobj={0x70742a85,0,0,5,0,0};
  int source=open("/dev/null",O_RDWR); fobj.fd=source; pobj.ptr=(uintptr_t)"hidl";
- unsigned char parcel[88]; memcpy(parcel,&obj,24); memcpy(parcel+24,&fobj,24); memcpy(parcel+48,&pobj,40);
- uint64_t offsets[]={0,24,48}; memset(&tx,0,sizeof(tx)); tx.flags=1; tx.size=88; tx.offsets_size=sizeof(offsets); tx.buffer=(uintptr_t)parcel; tx.offsets=(uintptr_t)offsets;
+ unsigned char parcel[92]={0}; memcpy(parcel+4,&obj,24); memcpy(parcel+28,&fobj,24); memcpy(parcel+52,&pobj,40);
+ uint64_t offsets[]={4,28,52}; memset(&tx,0,sizeof(tx)); tx.flags=1; tx.size=92; tx.offsets_size=sizeof(offsets); tx.buffer=(uintptr_t)parcel; tx.offsets=(uintptr_t)offsets;
  op=_IOC(_IOC_WRITE,'c',17,72); memcpy(cmd,&op,4); memcpy(cmd+4,&tx,64); uint64_t sglen=8; memcpy(cmd+68,&sglen,8);
  wr=(struct write_read){76,0,(uintptr_t)cmd,0,0,0}; if (ioctl(b,WRITE_READ,&wr)) return puts("sg send failed"),18;
  wr=(struct write_read){0,0,0,sizeof(result_buf),0,(uintptr_t)result_buf};
  if (ioctl(a,WRITE_READ,&wr)) return puts("sg first read failed"),19;
  memcpy(&op,result_buf,4); if (op==_IO('r',6)) { wr.rc=0; if(ioctl(a,WRITE_READ,&wr)) return puts("sg second read failed"),20; memcpy(&op,result_buf,4); }
  if (op!=_IOR('r',2,struct txn)) return puts("sg transaction missing"),21;
- memcpy(&tx,result_buf+4,64); memcpy(parcel,(void*)(uintptr_t)tx.buffer,88); memcpy(&obj,parcel,24); memcpy(&fobj,parcel+24,24); memcpy(&pobj,parcel+48,40);
+ memcpy(&tx,result_buf+4,64); memcpy(parcel,(void*)(uintptr_t)tx.buffer,92); memcpy(&obj,parcel+4,24); memcpy(&fobj,parcel+28,24); memcpy(&pobj,parcel+52,40);
  if (obj.type!=0x73682a85 || obj.binder!=1 || fobj.fd==(uint64_t)source || fcntl((int)fobj.fd,F_GETFD)!=FD_CLOEXEC || memcmp((void*)(uintptr_t)pobj.ptr,"hidl",5)) return puts("sg translation failed"),22;
 
  // Death delivery after the owner of a translated handle closes its driver fd.
@@ -116,4 +116,66 @@ int main(void) {
     let output = String::from_utf8_lossy(&out.lock().unwrap()).into_owned();
     assert!(output.contains("binder basic ok"), "{output}");
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// Opt in when the unpacked Android 13 ROM is available on the host.
+#[test]
+#[ignore = "requires the local AOSP Android 13 ROM"]
+fn android_servicemanager_and_service_list() {
+    use std::sync::atomic::Ordering;
+    let rom = std::path::PathBuf::from(
+        std::env::var("IDORID_TEST_ROM")
+            .unwrap_or_else(|_| format!("{}/aosp/rom13", std::env::var("HOME").unwrap())),
+    );
+    let root = std::env::temp_dir().join(format!("idorid-binder-rom-{}", std::process::id()));
+    let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let sink = output.clone();
+    let kernel = idorid_kernel::Kernel::new(idorid_kernel::Config {
+        rom,
+        overlays: vec![
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay"),
+        ],
+        state: root,
+        console: Arc::new(move |data| sink.lock().unwrap().extend_from_slice(data)),
+    });
+    let env = [
+        "PATH=/system/bin:/apex/com.android.runtime/bin",
+        "ANDROID_ROOT=/system",
+        "ANDROID_DATA=/data",
+        "ANDROID_ART_ROOT=/apex/com.android.art",
+        "ANDROID_I18N_ROOT=/apex/com.android.i18n",
+        "ANDROID_TZDATA_ROOT=/apex/com.android.tzdata",
+    ];
+    let manager = kernel
+        .spawn(
+            "/system/bin/servicemanager",
+            &["/system/bin/servicemanager"],
+            &env,
+        )
+        .unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(
+        kernel.procs.lock().contains_key(&manager),
+        "servicemanager exited: {}",
+        String::from_utf8_lossy(&output.lock().unwrap())
+    );
+    let client = kernel
+        .spawn(
+            "/system/bin/service",
+            &["/system/bin/service", "list"],
+            &env,
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while kernel.procs.lock().contains_key(&client) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let completed = !kernel.procs.lock().contains_key(&client);
+    if let Some(process) = kernel.procs.lock().get(&manager).cloned() {
+        kernel.exit_group(&process, idorid_kernel::task::ExitStatus::Exited(0));
+    }
+    let text = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+    assert!(completed, "service list timed out: {text}");
+    assert!(text.contains("Found "), "service list failed: {text}");
+    let _ = kernel.live_threads.load(Ordering::Relaxed);
 }

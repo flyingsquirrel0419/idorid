@@ -297,7 +297,9 @@ impl Node for HostDir {
 }
 
 pub fn stat_from_host(m: &fs::Metadata) -> Stat {
-    let mut mode = m.mode();
+    // Host umask leaves group-write on our files; Android treats g/o-writable
+    // config files as insecure, and we do not enforce permissions anyway.
+    let mut mode = m.mode() & !0o022;
     // ROM files are owned by "root" in the guest; keep permission bits but
     // make sure the guest (uid 0) can read what we can read.
     if m.is_dir() {

@@ -506,7 +506,11 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
         // exits inline.
         let mut slices = 0u32;
         let stop = loop {
-            let slice = if kernel.profile.is_some() { PROFILE_SLICE } else { SLICE };
+            let slice = if kernel.profile.is_some() {
+                PROFILE_SLICE
+            } else {
+                SLICE
+            };
             match cpu.run(&*ctx.mm, slice) {
                 Exit::Svc(_) => {
                     match crate::syscall::dispatch(&ctx, &mut cpu) {
@@ -533,6 +537,7 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
                             "[kernel] pid {} tid {} fault {:?} at {addr:#x} pc={:#x}",
                             ctx.process.pid, thread.tid, access, cpu.pc
                         ));
+                        kernel.log(&backtrace(&ctx.mm, &cpu));
                     }
                     // SEGV_MAPERR (1) or SEGV_ACCERR (2).
                     let code = if ctx.mm.vma_at(addr).is_some() { 2 } else { 1 };
@@ -577,4 +582,57 @@ pub fn thread_main(kernel: Arc<Kernel>, thread: Arc<Thread>, mut cpu: Cpu) {
     kernel.insns.fetch_add(cpu.retired, Ordering::Relaxed);
     kernel.thread_exited(&thread);
     CURRENT.with(|c| *c.borrow_mut() = None);
+}
+
+/// Symbolic location "file+0xoff" of a guest address.
+pub fn locate(mm: &Mm, pc: u64) -> String {
+    match mm.vma_at(pc) {
+        Some(v) => match &v.backing {
+            crate::mm::Backing::File { offset, .. } => {
+                format!("{}+{:#x}", v.name, offset + (pc - v.start))
+            }
+            _ => format!(
+                "{}+{:#x}",
+                if v.name.is_empty() { "[anon]" } else { &v.name },
+                pc - v.start
+            ),
+        },
+        None => format!("{pc:#x}"),
+    }
+}
+
+/// Registers and a frame-pointer backtrace (x29 chain) for diagnostics.
+pub fn backtrace(mm: &Mm, cpu: &Cpu) -> String {
+    let mut s = String::new();
+    for i in 0..31 {
+        s.push_str(&format!(
+            "x{i:<2}={:016x}{}",
+            cpu.x[i],
+            if i % 4 == 3 { "\n" } else { " " }
+        ));
+    }
+    s.push_str(&format!(" sp={:016x}\n", cpu.sp));
+    s.push_str(&format!("  #00 pc {}\n", locate(mm, cpu.pc)));
+    s.push_str(&format!("  #01 lr {}\n", locate(mm, cpu.x[30])));
+    let mut fp = cpu.x[29] & 0x00ff_ffff_ffff_ffff;
+    for n in 2..24 {
+        if fp == 0 || fp & 7 != 0 {
+            break;
+        }
+        let (Some(next), Some(ret)) = (mm.read_u64(fp), mm.read_u64(fp + 8)) else {
+            break;
+        };
+        if ret == 0 {
+            break;
+        }
+        s.push_str(&format!(
+            "  #{n:02} {}\n",
+            locate(mm, ret & 0x00ff_ffff_ffff_ffff)
+        ));
+        if next <= fp {
+            break;
+        }
+        fp = next;
+    }
+    s
 }

@@ -1,8 +1,7 @@
 //! Scalar FP operations. Unimplemented encodings are left for the caller to reject.
 //!
-//! Host arithmetic currently uses the host's default round-to-nearest mode.
-//! FPCR-directed rounding is implemented for integer and precision conversions
-//! and FRINT, but not for general arithmetic, square root, or fused operations.
+//! Arithmetic adjusts host round-to-nearest results for FPCR-directed rounding.
+//! Fused operations use an exact integer residual for directed rounding.
 //! Arithmetic exception reporting is incomplete, especially for fused operations.
 
 use crate::cpu::Cpu;
@@ -102,6 +101,105 @@ fn exact_product_equal(a: f64, b: f64, c: f64) -> bool {
     let cz = c.trailing_zeros();
     product >>= pz;
     product == (c >> cz) as u128 && ea + eb + pz as i32 == ec + cz as i32
+}
+
+fn product_magnitude_cmp(a: f64, b: f64, c: f64) -> core::cmp::Ordering {
+    fn parts(x: f64) -> (u64,i32) {
+        let bits=x.to_bits() & 0x7fff_ffff_ffff_ffff;let e=(bits>>52) as i32;let f=bits & ((1u64<<52)-1);
+        if e==0 {(f,-1074)} else {(f | (1u64<<52),e-1075)}
+    }
+    let (a,ea)=parts(a);let (b,eb)=parts(b);let (c,ec)=parts(c);
+    let p=(a as u128)*(b as u128);let c=c as u128;
+    if p==0 || c==0 {return p.cmp(&c);}
+    let pb=128-p.leading_zeros();let cb=128-c.leading_zeros();
+    (ea+eb+pb as i32).cmp(&(ec+cb as i32)).then_with(|| (p << (128-pb)).cmp(&(c << (128-cb))))
+}
+
+// Adjust a nearest-even host result using the sign of its exact rounding error.
+fn directed_arithmetic(cpu:&mut Cpu,x:f64,y:f64,z:f64,op:u32,double:bool) -> f64 {
+    use core::cmp::Ordering;
+    let mode=(cpu.fpcr>>22)&3;
+    if mode==0 || !x.is_finite() || !y.is_finite() || (op==1 && y==0.0) {return z;}
+    let negative=if op<=1 {x.is_sign_negative() ^ y.is_sign_negative()} else {z.is_sign_negative()};
+    let ordering=if z.is_infinite() {if z.is_sign_negative() {Ordering::Greater} else {Ordering::Less}}
+    else if op<=1 {
+        let mag=if op==0 {product_magnitude_cmp(x,y,z)} else {product_magnitude_cmp(z,y,x).reverse()};
+        if negative {mag.reverse()} else {mag}
+    } else {
+        let b=if op==3 {-y} else {y};let v=z-x;let error=(x-(z-v))+(b-v);
+        if error>0.0 {Ordering::Greater} else if error<0.0 {Ordering::Less} else {Ordering::Equal}
+    };
+    if ordering==Ordering::Equal {
+        if z==0.0 && mode==2 && op>=2 {
+            let b=if op==3 {-y} else {y};
+            if x.is_sign_negative()!=b.is_sign_negative() {return -0.0;}
+        }
+        return z;
+    }
+    let up=mode==1 && ordering==Ordering::Greater || mode==3 && z.is_sign_negative() && ordering==Ordering::Greater;
+    let down=mode==2 && ordering==Ordering::Less || mode==3 && !z.is_sign_negative() && ordering==Ordering::Less;
+    if !up && !down {return z;}
+    let result=if double {
+        let bits=z.to_bits();let next=if up {if bits==1u64<<63 {1} else if bits>>63!=0 {bits-1} else {bits+1}} else if bits==0 {(1u64<<63)|1} else if bits>>63!=0 {bits+1} else {bits-1};f64::from_bits(next)
+    } else {
+        let bits=(z as f32).to_bits();let next=if up {if bits==1u32<<31 {1} else if bits>>31!=0 {bits-1} else {bits+1}} else if bits==0 {(1u32<<31)|1} else if bits>>31!=0 {bits+1} else {bits-1};f32::from_bits(next) as f64
+    };
+    if result.is_infinite() {cpu.fpsr |= (1<<2)|(1<<4);}
+    result
+}
+
+// Compare the exact fused expression with its rounded result. The fixed-size
+// accumulators cover every product exponent of two finite binary64 values.
+fn fused_error(x:f64,y:f64,add:f64,result:f64) -> core::cmp::Ordering {
+    fn parts(v:f64) -> (u64,i32,bool) {
+        let bits=v.to_bits();let e=((bits>>52)&0x7ff) as i32;let f=bits&((1u64<<52)-1);
+        (if e==0 {f} else {f | (1u64<<52)},if e==0 {-1074} else {e-1075},bits>>63!=0)
+    }
+    fn add_word(words:&mut [u64;70],mut index:usize,mut value:u64) {
+        while value!=0 {let (v,carry)=words[index].overflowing_add(value);words[index]=v;value=carry as u64;index+=1;}
+    }
+    fn add_term(words:&mut [u64;70],value:u128,exp:i32) {
+        if value==0 {return;}
+        let bit=(exp+2200) as usize;let idx=bit/64;let shift=bit%64;
+        for (i,limb) in [value as u64,(value>>64) as u64].into_iter().enumerate() {
+            add_word(words,idx+i,limb<<shift);
+            if shift!=0 {add_word(words,idx+i+1,limb>>(64-shift));}
+        }
+    }
+    let (a,ea,sa)=parts(x);let (b,eb,sb)=parts(y);let (c,ec,sc)=parts(add);let (r,er,sr)=parts(result);
+    let mut positive=[0u64;70];let mut negative=[0u64;70];
+    add_term(if sa^sb {&mut negative} else {&mut positive},(a as u128)*(b as u128),ea+eb);
+    add_term(if sc {&mut negative} else {&mut positive},c as u128,ec);
+    add_term(if sr {&mut positive} else {&mut negative},r as u128,er);
+    for i in (0..70).rev() {let cmp=positive[i].cmp(&negative[i]);if cmp!=core::cmp::Ordering::Equal {return cmp;}}
+    core::cmp::Ordering::Equal
+}
+
+fn fused_round(cpu:&mut Cpu,x:f64,y:f64,add:f64,mut result:f64,double:bool) -> f64 {
+    use core::cmp::Ordering;
+    if !x.is_finite() || !y.is_finite() || !add.is_finite() {return result;}
+    let mode=(cpu.fpcr>>22)&3;
+    let cmp=if result.is_infinite() {
+        cpu.fpsr |= (1<<2)|(1<<4);
+        if result.is_sign_negative() {Ordering::Greater} else {Ordering::Less}
+    } else {fused_error(x,y,add,result)};
+    if cmp==Ordering::Equal {
+        if result==0.0 && mode==2 && (x.is_sign_negative()^y.is_sign_negative()) != add.is_sign_negative() {return -0.0;}
+        return result;
+    }
+    cpu.fpsr |= 1<<4;
+    if result.abs() < if double {f64::MIN_POSITIVE} else {f32::MIN_POSITIVE as f64} {cpu.fpsr |= 1<<3;}
+    let up=mode==1 && cmp==Ordering::Greater || mode==3 && result.is_sign_negative() && cmp==Ordering::Greater;
+    let down=mode==2 && cmp==Ordering::Less || mode==3 && !result.is_sign_negative() && cmp==Ordering::Less;
+    if up || down {
+        result=if double {
+            let bits=result.to_bits();let next=if up {if bits==1u64<<63 {1} else if bits>>63!=0 {bits-1} else {bits+1}} else if bits==0 {(1u64<<63)|1} else if bits>>63!=0 {bits+1} else {bits-1};f64::from_bits(next)
+        } else {
+            let bits=(result as f32).to_bits();let next=if up {if bits==1u32<<31 {1} else if bits>>31!=0 {bits-1} else {bits+1}} else if bits==0 {(1u32<<31)|1} else if bits>>31!=0 {bits+1} else {bits-1};f32::from_bits(next) as f64
+        };
+        if result.is_infinite() {cpu.fpsr |= (1<<2)|(1<<4);}
+    }
+    result
 }
 
 fn arithmetic_flags(cpu: &mut Cpu, x: f64, y: f64, z: f64, op: u32, double: bool) {
@@ -448,15 +546,27 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
                 v | quiet
             }
         } else if double {
-            let r = f64::from_bits(x).mul_add(f64::from_bits(y), f64::from_bits(z));
+            let (a,b,c)=(f64::from_bits(x),f64::from_bits(y),f64::from_bits(z));
+            let r=fused_round(cpu,a,b,c,a.mul_add(b,c),true);
             finish(cpu, r.to_bits(), true)
         } else {
-            let r = f32::from_bits(x as u32)
-                .mul_add(f32::from_bits(y as u32), f32::from_bits(z as u32));
+            let (a,b,c)=(f32::from_bits(x as u32),f32::from_bits(y as u32),f32::from_bits(z as u32));
+            let r=fused_round(cpu,a as f64,b as f64,c as f64,a.mul_add(b,c) as f64,false) as f32;
             finish(cpu, r.to_bits() as u64, false)
         };
         cpu.v[d] = result as u128;
         return true;
+    }
+    // Round to an FP integer that fits in a signed 32- or 64-bit range.
+    let round_n = insn & 0xff3f_fc00;
+    if matches!(round_n, 0x1e28_4000 | 0x1e28_c000 | 0x1e29_4000 | 0x1e29_c000) {
+        let bits=input(cpu,raw(cpu.v[n]),double);
+        let value=if double {f64::from_bits(bits)} else {f32::from_bits(bits as u32) as f64};
+        let mode=if round_n & (1<<15)!=0 {(cpu.fpcr>>22)&3} else {3};
+        let rounded=match mode {0=>value.round_ties_even(),1=>value.ceil(),2=>value.floor(),_=>value.trunc()};
+        let bound=if round_n & (1<<16)!=0 {9223372036854775808.0} else {2147483648.0};
+        let result=if !value.is_finite() || rounded < -bound || rounded >= bound {cpu.fpsr |= 1;-bound} else {if rounded != value {cpu.fpsr |= 1<<4;}rounded};
+        cpu.v[d]=if double {result.to_bits() as u128} else {(result as f32).to_bits() as u128};return true;
     }
     // Round floating-point values to integral values in the encoded mode.
     let round_op = insn & 0xff3f_fc00;
@@ -524,12 +634,23 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
                 if let Some(x) = nan(cpu, a, None, double) {
                     x
                 } else {
-                    let r = if double {
-                        f64::from_bits(a).sqrt().to_bits()
-                    } else {
-                        f32::from_bits(a as u32).sqrt().to_bits() as u64
-                    };
-                    finish(cpu, r, double)
+                    let x = if double {f64::from_bits(a)} else {f32::from_bits(a as u32) as f64};
+                    let mut result = if double {x.sqrt()} else {(x as f32).sqrt() as f64};
+                    if x > 0.0 && x.is_finite() {
+                        let order=product_magnitude_cmp(result,result,x);
+                        if order != core::cmp::Ordering::Equal {
+                            cpu.fpsr |= 1<<4;
+                            let mode=(cpu.fpcr >> 22)&3;
+                            let up=mode==1 && order==core::cmp::Ordering::Less;
+                            let down=mode>=2 && order==core::cmp::Ordering::Greater;
+                            if up || down {
+                                result=if double {let bits=result.to_bits();f64::from_bits(if up {bits+1} else {bits-1})}
+                                    else {let bits=(result as f32).to_bits();f32::from_bits(if up {bits+1} else {bits-1}) as f64};
+                            }
+                        }
+                    }
+                    let bits=if double {result.to_bits()} else {(result as f32).to_bits() as u64};
+                    finish(cpu,bits,double)
                 }
             }
         };
@@ -667,6 +788,12 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         cpu.v[d] = result as u128;
         return true;
     }
+    if insn & 0xff20_fc00 == 0x1e20_8800 {
+        let multiply = insn & !(15 << 12);
+        if !exec(cpu,multiply) {return false;}
+        cpu.v[d] ^= if double {1u128 << 63} else {1u128 << 31};
+        return true;
+    }
     // Two-source arithmetic.
     if insn & 0xff20_0c00 == 0x1e20_0800 {
         let op = (insn >> 12) & 15;
@@ -690,6 +817,7 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
                 _ => x - y,
             };
             arithmetic_flags(cpu, x, y, z, op, true);
+            let z=directed_arithmetic(cpu,x,y,z,op,true);
             finish(cpu, z.to_bits(), true)
         } else {
             let x = f32::from_bits(a as u32);
@@ -704,6 +832,7 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
                 _ => x - y,
             };
             arithmetic_flags(cpu, x as f64, y as f64, z as f64, op, false);
+            let z=directed_arithmetic(cpu,x as f64,y as f64,z as f64,op,false) as f32;
             finish(cpu, z.to_bits() as u64, false)
         };
         cpu.v[d] = result as u128;
