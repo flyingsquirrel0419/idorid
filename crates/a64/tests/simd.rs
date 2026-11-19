@@ -286,3 +286,20 @@ fn movi_shifted_word() {
     assert_eq!(cpu.run(&mem, 10), Exit::Brk(0));
     assert_eq!(cpu.v[10], 0xbf00_0000_bf00_0000);
 }
+
+#[test]
+fn shll_widens_and_shifts_by_lane_width() {
+    let mem = Memory(UnsafeCell::new([0; 4096]));
+    // shll v1.2d, v1.2s, #32 ; shll2 v2.4s, v3.8h, #16 ; brk #0
+    for (i, word) in [0x2ea13821u32, 0x6e613862, 0xd4200000].iter().enumerate() {
+        unsafe {
+            (&mut *mem.0.get())[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    }
+    let mut cpu = Cpu::new();
+    cpu.v[1] = 0xffff_ffff_ffff_ffff_8765_4321_dead_beef;
+    cpu.v[3] = 0x1111_2222_3333_4444_0000_0000_0000_0000;
+    assert_eq!(cpu.run(&mem, 10), Exit::Brk(0));
+    assert_eq!(cpu.v[1], 0x8765_4321_0000_0000_dead_beef_0000_0000);
+    assert_eq!(cpu.v[2], 0x1111_0000_2222_0000_3333_0000_4444_0000);
+}

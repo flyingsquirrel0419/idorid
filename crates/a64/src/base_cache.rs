@@ -45,6 +45,28 @@ impl Op {
         } else if i & 0x7e00_0000 == 0x3400_0000 {
             o.kind = 8;
             o.imm = (((((i >> 5) & 0x7ffff) as u64) << 45) as i64 >> 43) as u64;
+        } else if i & 0x1f00_0000 == 0x1000_0000 {
+            o.kind = 9;
+            let imm = (((i >> 5) & 0x7ffff) << 2) | ((i >> 29) & 3);
+            o.imm = ((imm as i64) << 43 >> 43) as u64;
+        } else if i & 0x1fe0_0000 == 0x1a80_0000 {
+            o.kind = 10;
+        } else if i & 0x1f20_0000 == 0x0b20_0000 && ((i >> 10) & 7) <= 4 {
+            o.kind = 11;
+        } else if i & 0x3e00_0000 == 0x2800_0000 && i >> 30 != 3 {
+            o.kind = 16;
+            let sz = if i >> 30 == 2 { 3 } else { 2 };
+            let off = (((i >> 15) & 0x7f) as u64) << sz;
+            o.imm = ((off << (57 - sz)) as i64 >> (57 - sz)) as u64;
+        } else if ((i >> 25) & 5) == 4 && i & (1 << 26) == 0 {
+            o.kind = 12;
+        } else if i & 0x1fe0_fc00 == 0x1a00_0000 {
+            o.kind = 13;
+        } else if i & 0x1fe0_0000 == 0x1a40_0000 {
+            o.kind = 14;
+        } else if i & 0x7e00_0000 == 0x3600_0000 {
+            o.kind = 15;
+            o.imm = (((((i >> 5) & 0x3fff) as u64) << 50) as i64 >> 48) as u64;
         } else if i & 0x1f20_0000 == 0x0b00_0000
             && ((i >> 10) & 63) < if i >> 31 != 0 { 64 } else { 32 }
             && (i >> 22) & 3 != 3
@@ -78,6 +100,9 @@ impl Clone for BlockCache {
     }
 }
 impl BlockCache {
+    pub fn clear(&mut self) {
+        self.slots.clear();
+    }
     pub fn sync<A: AddressSpace + ?Sized>(&mut self, mem: &A, cpu: &mut Cpu) {
         let generation = mem.generation();
         let space = mem as *const A as *const () as usize;

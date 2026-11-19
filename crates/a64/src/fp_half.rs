@@ -229,7 +229,11 @@ pub(crate) fn arithmetic(cpu: &mut Cpu, insn: u32) -> bool {
     let ok = crate::fp::exec(cpu, synthetic);
     let result = if ok && !compare {
         let value = f64::from_bits(cpu.v[31] as u64);
-        if cpu.fpcr & (1 << 19) != 0 && value != 0.0 && value.is_finite() && value.abs() < 2f64.powi(-14) {
+        if cpu.fpcr & (1 << 19) != 0
+            && value != 0.0
+            && value.is_finite()
+            && value.abs() < 2f64.powi(-14)
+        {
             cpu.fpsr = (cpu.fpsr & !(1 << 4)) | (original_fpsr & (1 << 4));
         }
         let _ = convert(cpu, 0x1e63_c000 | (31 << 5) | 31, true);

@@ -64,6 +64,7 @@ pub struct Tlb {
     write: Box<[Entry; TLB_SIZE]>,
     exec: Box<[Entry; TLB_SIZE]>,
     generation: u64,
+    pub(crate) block_cache: crate::base_cache::BlockCache,
 }
 
 // The host pointers are owned by the AddressSpace; a Tlb is per guest thread.
@@ -89,6 +90,7 @@ impl Tlb {
             write: Box::new([EMPTY; TLB_SIZE]),
             exec: Box::new([EMPTY; TLB_SIZE]),
             generation: u64::MAX,
+            block_cache: crate::base_cache::BlockCache::default(),
         }
     }
 
@@ -96,6 +98,7 @@ impl Tlb {
         self.read.fill(EMPTY);
         self.write.fill(EMPTY);
         self.exec.fill(EMPTY);
+        self.block_cache.clear();
     }
 
     /// Flushes if the address space changed since the last call.

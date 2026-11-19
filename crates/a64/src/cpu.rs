@@ -47,7 +47,6 @@ pub struct Cpu {
     /// Guest instructions retired (statistics; also the basis of `Budget`).
     pub retired: u64,
     pub tlb: Tlb,
-    pub(crate) block_cache: crate::base_cache::BlockCache,
 }
 
 impl Default for Cpu {
@@ -72,7 +71,6 @@ impl Cpu {
             exclusive_value: 0,
             retired: 0,
             tlb: Tlb::new(),
-            block_cache: crate::base_cache::BlockCache::default(),
         }
     }
 

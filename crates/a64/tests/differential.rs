@@ -308,6 +308,12 @@ fn cached_blocks_budget_fault_and_generation() {
     c.pc = 0x1000;
     assert_eq!(c.run(&mem, 1), Exit::Budget);
     assert_eq!(c.x[0], 7);
+    // An explicit TLB flush also invalidates decoded code.
+    mem.write(0x1000, &0x91001c00u32.to_le_bytes());
+    c.tlb.flush();
+    c.pc = 0x1000;
+    assert_eq!(c.run(&mem, 1), Exit::Budget);
+    assert_eq!(c.x[0], 14);
     // A generation bump also invalidates cached execute permission.
     mem.map(0x1000, 0x1000, 3);
     c.pc = 0x1000;
@@ -318,7 +324,7 @@ fn cached_blocks_budget_fault_and_generation() {
             access: Access::Exec
         }
     );
-    assert_eq!(c.retired, 3);
+    assert_eq!(c.retired, 4);
 }
 
 #[test]

@@ -52,3 +52,40 @@ fn generated_static_elf_matches_qemu() {
     }
     assert!(tested > 0, "test profile did not select a CPU test ELF");
 }
+
+#[test]
+fn generated_simd_batch_preserves_budgets() {
+    use idorid_a64::{Cpu, Exit};
+    let Some(root) = std::env::var_os("IDORID_AOT_ROM") else {
+        return;
+    };
+    let Some(unit) = idorid_aot::lookup("/bin/batch", 0) else {
+        return;
+    };
+    let bytes = std::fs::read(std::path::Path::new(&root).join("bin/batch")).unwrap();
+    assert_eq!(bytes.len(), 4096);
+    let plain = support::Pages::new();
+    let aot = support::Pages::new();
+    plain.map(0x1000, 4096, 7);
+    aot.map(0x1000, 4096, 7);
+    plain.write(0x1000, &bytes);
+    aot.write(0x1000, &bytes);
+    aot.set_aot(1, unit);
+    for start in [0, 4, 8] {
+        for budget in 1..=4 {
+            let mut a = Cpu::new();
+            a.pc = 0x1000 + start;
+            for i in 0..32 {
+                a.v[i] = 0x7766554433221100ffeeddccbbaa9988u128.rotate_left(i as u32);
+            }
+            let mut b = a.clone();
+            let x = a.run(&plain, budget);
+            let y = b.run(&aot, budget);
+            assert_eq!(x, y, "start={start} budget={budget}");
+            assert_eq!(a.pc, b.pc);
+            assert_eq!(a.retired, b.retired);
+            assert_eq!(a.v, b.v);
+            assert!(matches!(y, Exit::Budget | Exit::Brk(0)));
+        }
+    }
+}

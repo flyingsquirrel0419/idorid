@@ -1134,12 +1134,126 @@ fn execute_cached<A: AddressSpace + ?Sized>(
                 Ok(None)
             }
         }
+        9 => {
+            let v = if sf {
+                (c.pc & !4095).wrapping_add(op.imm << 12)
+            } else {
+                c.pc.wrapping_add(op.imm)
+            };
+            put(c, d, v, false);
+            Ok(None)
+        }
+        10 => {
+            let v = if cond(c, bits(i, 12, 4)) {
+                reg(c, rn)
+            } else {
+                let b = reg(c, rm);
+                match (bits(i, 30, 1), bits(i, 10, 1)) {
+                    (0, 0) => b,
+                    (0, 1) => b.wrapping_add(1),
+                    (1, 0) => !b,
+                    _ => b.wrapping_neg(),
+                }
+            };
+            put(c, d, v, !sf);
+            Ok(None)
+        }
+        11 => {
+            let option = bits(i, 13, 3);
+            let n = 8u32 << (option & 3);
+            let mut b = reg(c, rm) & mask(n);
+            if option & 4 != 0 {
+                b = sext(b, n)
+            }
+            b = b.wrapping_shl(bits(i, 10, 3));
+            let sub = i & (1 << 30) != 0;
+            let flags = i & (1 << 29) != 0;
+            let v = add(c, base(c, rn), if sub { !b } else { b }, sub, width, flags);
+            if flags {
+                put(c, d, v, !sf)
+            } else {
+                putsp(c, d, v, !sf)
+            }
+            Ok(None)
+        }
+        12 => {
+            ldst(c, m, i)?;
+            Ok(None)
+        }
+        13 => {
+            let sub = i & (1 << 30) != 0;
+            let b = reg(c, rm);
+            let v = add(
+                c,
+                reg(c, rn),
+                if sub { !b } else { b },
+                c.nzcv & (1 << 29) != 0,
+                width,
+                i & (1 << 29) != 0,
+            );
+            put(c, d, v, !sf);
+            Ok(None)
+        }
+        14 => {
+            if cond(c, bits(i, 12, 4)) {
+                let b = if i & (1 << 11) != 0 {
+                    rm as u64
+                } else {
+                    reg(c, rm)
+                };
+                let sub = i & (1 << 30) != 0;
+                add(c, reg(c, rn), if sub { !b } else { b }, sub, width, true);
+            } else {
+                c.nzcv = (bits(i, 0, 4) as u64) << 28;
+            }
+            Ok(None)
+        }
+        15 => {
+            let bit = bits(i, 19, 5) | (bits(i, 31, 1) << 5);
+            if ((reg(c, d) >> bit) & 1 != 0) == (i & (1 << 24) != 0) {
+                c.pc = c.pc.wrapping_add(op.imm);
+                Ok(Some(Exit::Budget))
+            } else {
+                Ok(None)
+            }
+        }
+        16 => {
+            let pair_op = i >> 30;
+            let sz = if pair_op == 2 { 3 } else { 2 };
+            let mode = bits(i, 23, 2);
+            let b = base(c, rn);
+            let addr = if mode == 1 { b } else { b.wrapping_add(op.imm) };
+            let rt2 = bits(i, 10, 5);
+            if i & (1 << 22) != 0 {
+                let x = load(c, m, addr, sz)?;
+                let y = load(c, m, addr.wrapping_add(1 << sz), sz)?;
+                put(
+                    c,
+                    d,
+                    if pair_op == 1 { sext(x, 32) } else { x },
+                    pair_op == 0,
+                );
+                put(
+                    c,
+                    rt2,
+                    if pair_op == 1 { sext(y, 32) } else { y },
+                    pair_op == 0,
+                );
+            } else {
+                store(c, m, addr, sz, reg(c, d))?;
+                store(c, m, addr.wrapping_add(1 << sz), sz, reg(c, rt2))?;
+            }
+            if mode == 1 || mode == 3 {
+                putsp(c, rn, b.wrapping_add(op.imm), false);
+            }
+            Ok(None)
+        }
         _ => execute(c, m, i),
     }
 }
-/// Execute the AES or vector Boolean forms recognized by the AOT generator.
+/// Execute a recognized nonfaulting SIMD operation without changing PC or retirement.
 #[inline(always)]
-pub fn aot_simd_simple(cpu: &mut Cpu, insn: u32) {
+pub fn aot_simd_unretired(cpu: &mut Cpu, insn: u32) {
     let d = (insn & 31) as usize;
     let n = ((insn >> 5) & 31) as usize;
     let m = ((insn >> 16) & 31) as usize;
@@ -1162,6 +1276,12 @@ pub fn aot_simd_simple(cpu: &mut Cpu, insn: u32) {
             value as u64 as u128
         };
     }
+}
+
+/// Execute one recognized SIMD operation with architectural bookkeeping.
+#[inline(always)]
+pub fn aot_simd_simple(cpu: &mut Cpu, insn: u32) {
+    aot_simd_unretired(cpu, insn);
     cpu.pc = cpu.pc.wrapping_add(4);
     cpu.retired += 1;
 }
@@ -1193,9 +1313,9 @@ pub(crate) fn run<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64)
     if *DISABLE_CACHE.get_or_init(|| std::env::var_os("IDORID_A64_DISABLE_CACHE").is_some()) {
         return run_uncached(cpu, mem, budget);
     }
-    let mut cache = core::mem::take(&mut cpu.block_cache);
+    let mut cache = core::mem::take(&mut cpu.tlb.block_cache);
     let result = run_cached(cpu, mem, budget, &mut cache);
-    cpu.block_cache = cache;
+    cpu.tlb.block_cache = cache;
     result
 }
 fn run_uncached<A: AddressSpace + ?Sized>(cpu: &mut Cpu, mem: &A, budget: u64) -> Exit {

@@ -1039,6 +1039,23 @@ fn vector(cpu: &mut Cpu, insn: u32) -> bool {
         cpu.v[d] = out;
         return true;
     }
+    // SHLL/SHLL2: widen each lane and shift left by the source lane width.
+    if insn & 0xbf3f_fc00 == 0x2e21_3800 {
+        let size = (insn >> 22) & 3;
+        if size == 3 {
+            return false;
+        }
+        let width = 8u32 << size;
+        let lm = (1u128 << width) - 1;
+        let output_mask = (1u128 << (2 * width)) - 1;
+        let mut out = 0;
+        for i in 0..64 / width {
+            let value = (a >> (i * width + if q { 64 } else { 0 })) & lm;
+            out |= ((value << width) & output_mask) << (i * 2 * width);
+        }
+        cpu.v[d] = out;
+        return true;
+    }
     // Narrow lanes and saturating narrow, preserving the low half for *2.
     let narrow_lane = insn & 0xbf3f_fc00;
     if matches!(

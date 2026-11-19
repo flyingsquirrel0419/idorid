@@ -15,7 +15,11 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         let d = (insn & 31) as usize;
         let n = ((insn >> 5) & 31) as usize;
         let width = if double { 64 } else { 32 };
-        let lanes = if scalar { 1 } else { (if q { 128 } else { 64 }) / width };
+        let lanes = if scalar {
+            1
+        } else {
+            (if q { 128 } else { 64 }) / width
+        };
         let lm = (1u128 << width) - 1;
         let src = cpu.v[n];
         let saved_x = cpu.x[16];
@@ -472,8 +476,11 @@ pub(crate) fn exec(cpu: &mut Cpu, insn: u32) -> bool {
         return true;
     }
     let round_n = match insn & 0xbfbf_fc00 {
-        0x0e21_e800=>Some(0x1e28_4000),0x2e21_e800=>Some(0x1e28_c000),
-        0x0e21_f800=>Some(0x1e29_4000),0x2e21_f800=>Some(0x1e29_c000),_=>None,
+        0x0e21_e800 => Some(0x1e28_4000),
+        0x2e21_e800 => Some(0x1e28_c000),
+        0x0e21_f800 => Some(0x1e29_4000),
+        0x2e21_f800 => Some(0x1e29_c000),
+        _ => None,
     };
     let unary = round_n.or(match insn & 0xbfbf_fc00 {
         0x0ea0_f800 => Some(0x1e20_c000),

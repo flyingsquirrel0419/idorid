@@ -33,5 +33,5 @@ pub use mem::{Access, AddressSpace, Tlb, PAGE_SHIFT, PAGE_SIZE};
 
 /// Entry points used by generated ahead-of-time page units.
 pub mod aot {
-    pub use crate::exec::{aot_simd_simple, aot_step};
+    pub use crate::exec::{aot_simd_simple, aot_simd_unretired, aot_step};
 }

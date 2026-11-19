@@ -67,19 +67,61 @@ pub fn generate(
         )?;
         for (group, chunk) in bytes.as_chunks::<32>().0.iter().enumerate() {
             writeln!(out, "{group} => {{")?;
-            for (j, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
-                let index = group * 8 + j;
-                let word = u32::from_le_bytes(*word);
-                let next = (index + 1) * 4;
-                let aes = matches!(
+            let words: Vec<u32> = chunk
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|word| u32::from_le_bytes(*word))
+                .collect();
+            let is_simple = |word: u32| {
+                matches!(
                     word & 0xffff_fc00,
                     0x4e28_4800 | 0x4e28_5800 | 0x4e28_6800 | 0x4e28_7800
-                );
-                let boolean = matches!(word & 0xbfe0_fc00, 0x2e20_1c00 | 0x0ea0_1c00);
-                if aes || boolean {
-                    writeln!(out,"if entry <= {index} {{ idorid_a64::aot::aot_simd_simple(cpu,0x{word:08x}); if cpu.pc != base.wrapping_add({next}) || cpu.retired >= end {{ continue; }} }}")?;
+                ) || matches!(word & 0xbfe0_fc00, 0x2e20_1c00 | 0x0ea0_1c00)
+            };
+            let mut j = 0;
+            while j < words.len() {
+                let start = j;
+                if is_simple(words[j]) {
+                    while j < words.len() && is_simple(words[j]) {
+                        j += 1;
+                    }
                 } else {
-                    writeln!(out,"if entry <= {index} {{ if let Some(e)=idorid_a64::aot::aot_step(cpu,mem,0x{word:08x}) {{ return Some(e); }} if cpu.pc != base.wrapping_add({next}) || cpu.retired >= end || mem.generation() != generation {{ continue; }} }}")?;
+                    j += 1;
+                }
+                let first = group * 8 + start;
+                let last = group * 8 + j - 1;
+                if j - start >= 2 {
+                    // SIMD register-only operations cannot fault or branch. When
+                    // budget permits, execute the suffix and retire it as a unit.
+                    writeln!(out, "if entry <= {last} {{ let first = entry.max({first}); let count = ({last} + 1 - first) as u64; if end - cpu.retired >= count {{")?;
+                    for (k, word) in words[start..j].iter().enumerate() {
+                        let index = first + k;
+                        writeln!(out,"if entry <= {index} {{ idorid_a64::aot::aot_simd_unretired(cpu,0x{word:08x}); }}")?;
+                    }
+                    writeln!(
+                        out,
+                        "cpu.pc=base.wrapping_add({}); cpu.retired+=count; if cpu.retired >= end {{ continue; }} }} else {{",
+                        (last + 1) * 4
+                    )?;
+                    for (k, word) in words[start..j].iter().enumerate() {
+                        let index = first + k;
+                        writeln!(out,"if entry <= {index} {{ if cpu.retired >= end {{ continue; }} idorid_a64::aot::aot_simd_simple(cpu,0x{word:08x}); }}")?;
+                    }
+                    writeln!(out, "if cpu.retired >= end {{ continue; }} }} }}")?;
+                } else {
+                    let word = words[start];
+                    let next = (first + 1) * 4;
+                    if word == 0 {
+                        writeln!(
+                            out,
+                            "if entry <= {first} {{ return Some(Exit::Undefined(0)); }}"
+                        )?;
+                    } else if is_simple(word) {
+                        writeln!(out,"if entry <= {first} {{ idorid_a64::aot::aot_simd_simple(cpu,0x{word:08x}); if cpu.pc != base.wrapping_add({next}) || cpu.retired >= end {{ continue; }} }}")?;
+                    } else {
+                        writeln!(out,"if entry <= {first} {{ if let Some(e)=idorid_a64::aot::aot_step(cpu,mem,0x{word:08x}) {{ return Some(e); }} if cpu.pc != base.wrapping_add({next}) || cpu.retired >= end || mem.generation() != generation {{ continue; }} }}")?;
+                    }
                 }
             }
             writeln!(out, "}},")?;
