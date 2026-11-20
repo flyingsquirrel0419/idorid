@@ -847,8 +847,53 @@ impl Drop for VirtGpu {
 static ADDRESS_BLOCKS: std::sync::LazyLock<
     Mutex<std::collections::BTreeMap<u64, (u64, Arc<SharedMem>)>>,
 > = std::sync::LazyLock::new(|| Mutex::new(std::collections::BTreeMap::new()));
-static NEXT_ADDRESS_OFFSET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(4096);
 const ADDRESS_PHYS_BASE: u64 = 0x4000_0000_0000;
+
+/// Host address of a goldfish_address_space block's "physical" address, for
+/// the renderer's DMA reads; null if no live block contains it.
+pub fn dma_host_addr(paddr: u64) -> *mut u8 {
+    let Some(offset) = paddr.checked_sub(ADDRESS_PHYS_BASE) else {
+        return std::ptr::null_mut();
+    };
+    let blocks = ADDRESS_BLOCKS.lock();
+    let Some((&base, (size, mem))) = blocks.range(..=offset).next_back() else {
+        return std::ptr::null_mut();
+    };
+    let rel = offset - base;
+    if rel >= *size {
+        return std::ptr::null_mut();
+    }
+    // Blocks are contiguous HostBlock allocations, so page 0 is the base.
+    match mem.page(0) {
+        Some(p) => unsafe { p.ptr().add(rel as usize) },
+        None => std::ptr::null_mut(),
+    }
+}
+
+static NEXT_ADDRESS_OFFSET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(4096);
+
+/// Contiguous, page-aligned, zeroed host allocation backing an address-space
+/// block.
+struct HostBlock {
+    ptr: *mut u8,
+    layout: std::alloc::Layout,
+}
+unsafe impl Send for HostBlock {}
+unsafe impl Sync for HostBlock {}
+impl HostBlock {
+    fn new(len: usize) -> Option<HostBlock> {
+        let layout = std::alloc::Layout::from_size_align(len, 4096).ok()?;
+        // SAFETY: len is non-zero (checked by the caller).
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+        (!ptr.is_null()).then_some(HostBlock { ptr, layout })
+    }
+}
+impl Drop for HostBlock {
+    fn drop(&mut self) {
+        // SAFETY: allocated in new() with this layout.
+        unsafe { std::alloc::dealloc(self.ptr, self.layout) }
+    }
+}
 
 pub struct GoldfishAddressSpace {
     id: u64,
@@ -888,7 +933,14 @@ impl Node for GoldfishAddressSpace {
                 }
                 let len = size.checked_add(4095).ok_or(EINVAL)? & !4095;
                 let offset = NEXT_ADDRESS_OFFSET.fetch_add(len, Ordering::Relaxed);
-                let mem = SharedMem::new(len);
+                // The renderer reads these blocks by "physical" address
+                // (rcUpdateColorBufferDMA, see dma_host_addr), so back them
+                // with contiguous host memory.
+                let block = Arc::new(HostBlock::new(len as usize).ok_or(ENOMEM)?);
+                // SAFETY: HostBlock owns ptr..ptr+len (page-aligned, zeroed)
+                // until the last page clone drops the owner.
+                let mem = unsafe { SharedMem::from_external(block.ptr, len, block.clone()) }
+                    .ok_or(EINVAL)?;
                 ADDRESS_BLOCKS.lock().insert(offset, (len, mem));
                 self.owned.lock().push(offset);
                 if !ctx.mm.write_u64(arg, len)

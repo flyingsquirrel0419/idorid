@@ -441,6 +441,20 @@ impl Vfs {
                 rw("/second_stage_resources"),
             ),
         ];
+        // init (Android 13+) bind-mounts /data/data onto /data/user/0; the
+        // mount table is fixed, so set the bind up front. The empty host
+        // directory keeps "0" visible when listing /data/user.
+        let mut mounts = mounts;
+        let data = state.join("data");
+        let _ = fs::create_dir_all(data.join("data"));
+        let _ = fs::create_dir_all(data.join("user/0"));
+        mounts.push((
+            "/data/user/0".into(),
+            MountKind::Host {
+                dir: data.join("data"),
+                rw: true,
+            },
+        ));
         Vfs {
             mounts,
             overlays: Vec::new(),
@@ -490,7 +504,13 @@ impl Vfs {
                     let r = path.trim_start_matches('/');
                     for o in &self.overlays {
                         let cand = o.join(r);
-                        if fs::symlink_metadata(&cand).is_ok() {
+                        if let Ok(md) = fs::symlink_metadata(&cand) {
+                            // Overlays replace files; a directory the ROM also
+                            // has stays the ROM's and extra_entries merges the
+                            // overlay's files into its listing.
+                            if md.is_dir() && host.is_dir() {
+                                break;
+                            }
                             host = cand;
                             break;
                         }

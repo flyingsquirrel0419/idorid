@@ -905,7 +905,12 @@ fn syscall(ctx: &Ctx, cpu: &mut Cpu, nr: u64, a: [u64; 6]) -> i64 {
             ret((|| -> Result<i64> {
                 let target = cstr(ctx, a[0])?;
                 let path = cstr(ctx, a[2])?;
-                let (_, loc) = resolve(ctx, a[1] as i64, &path, false)?;
+                let (gpath, loc) = resolve(ctx, a[1] as i64, &path, false)?;
+                // Zygote's app-data isolation links /data/user/0 -> /data/data
+                // over a tmpfs we don't mount; our fixed bind already does that.
+                if gpath == "/data/user/0" && target == "/data/data" {
+                    return Ok(0);
+                }
                 match loc {
                     Loc::Missing { host, rw: true } => {
                         std::os::unix::fs::symlink(&target, &host).map_err(|e| host_err(&e))?;

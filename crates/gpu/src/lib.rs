@@ -176,6 +176,8 @@ pub struct Api {
     pub flush: unsafe extern "C" fn(u32),
     pub set_frame_callback:
         Option<unsafe extern "C" fn(Option<unsafe extern "C" fn(u32, u32, *const u8)>)>,
+    pub set_dma_resolver:
+        Option<unsafe extern "C" fn(Option<unsafe extern "C" fn(u64) -> *mut libc::c_void>)>,
 }
 impl Api {
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -208,6 +210,7 @@ impl Api {
             create_fence: sym!("stream_renderer_create_fence"),
             flush: sym!("stream_renderer_flush"),
             set_frame_callback: unsafe { lib.symbol(c"idorid_set_frame_callback").ok() },
+            set_dma_resolver: unsafe { lib.symbol(c"idorid_set_dma_resolver").ok() },
             _library: lib,
         })
     }
@@ -222,6 +225,16 @@ pub struct Renderer {
 }
 type FenceCallback = Box<dyn Fn(Fence) + Send + Sync>;
 static RENDERER_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// gfxstream asks for the host address of guest DMA buffers (goldfish
+/// address-space blocks) on its render threads.
+unsafe extern "C" fn dma_resolve(paddr: u64) -> *mut libc::c_void {
+    let p = idorid_kernel::virtgpu::dma_host_addr(paddr);
+    if p.is_null() {
+        eprintln!("gpu: unresolved DMA address {paddr:#x}");
+    }
+    p.cast()
+}
 
 unsafe extern "C" fn fence_trampoline(cookie: *mut libc::c_void, fence: *mut Fence) {
     if cookie.is_null() || fence.is_null() {
@@ -296,6 +309,10 @@ impl Renderer {
         if result != 0 {
             RENDERER_ACTIVE.store(false, Ordering::Release);
             return Err(format!("stream_renderer_init returned {result}"));
+        }
+        match api.set_dma_resolver {
+            Some(set_resolver) => unsafe { set_resolver(Some(dma_resolve)) },
+            None => eprintln!("gfxstream backend has no idorid DMA resolver hook"),
         }
         if std::env::var_os("IDORID_FB_DUMP").is_some() {
             match api.set_frame_callback {
