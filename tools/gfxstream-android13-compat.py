@@ -154,3 +154,97 @@ if "idorid: unresolved DMA buffer" not in text:
     if text.count(old) != 1:
         raise SystemExit("unexpected rcUpdateColorBufferDMA body")
     rc.write_text(text.replace(old, new, 1))
+
+# Vulkan commands carry a per-guest-process sequence number, checked against a
+# counter in ProcessResources, which gfxstream keys by virtio-gpu context id.
+# Android 13 guests open a render node (a new context) per connection, so one
+# process spans several contexts and later streams spin forever waiting for a
+# seqno their fresh counter never reaches. Let idorid map contexts to a
+# per-process id; cleanup runs when the process's last context goes away.
+rt = pathlib.Path(sys.argv[1]) / "host/RenderThread.cpp"
+text = rt.read_text()
+if "idorid_set_puid_resolver" not in text:
+    marker = "namespace gfxstream {\n"
+    hook = r'''#include <atomic>
+// idorid: per-guest-process puid for virtio-gpu contexts.
+using IdoridPuidResolver = uint64_t (*)(uint32_t, int);
+static std::atomic<IdoridPuidResolver> sIdoridPuidResolver{nullptr};
+extern "C" __attribute__((visibility("default")))
+void idorid_set_puid_resolver(IdoridPuidResolver resolver) {
+    sIdoridPuidResolver.store(resolver, std::memory_order_release);
+}
+// release=0: puid for the context. release=1: the context is going away;
+// returns the puid to clean up, or 0 while other contexts still use it.
+extern "C" uint64_t idorid_resolve_puid(uint32_t ctx, int release) {
+    if (auto resolve = sIdoridPuidResolver.load(std::memory_order_acquire)) {
+        return resolve(ctx, release);
+    }
+    return ctx;
+}
+
+'''
+    if text.count(marker) < 1:
+        raise SystemExit("unexpected RenderThread.cpp namespace")
+    text = text.replace(marker, hook + marker, 1)
+    old = "                tInfo->m_puid = mContextId;\n"
+    if text.count(old) != 1:
+        raise SystemExit("unexpected RenderThread puid assignment")
+    text = text.replace(old, "                tInfo->m_puid = idorid_resolve_puid(mContextId, 0);\n", 1)
+    rt.write_text(text)
+
+vc = pathlib.Path(sys.argv[1]) / "host/VirtioGpuContext.cpp"
+text = vc.read_text()
+if "idorid_resolve_puid" not in text:
+    marker = "namespace gfxstream {\n"
+    old = "    android_cleanupProcGLObjects(mId);\n"
+    if text.count(marker) < 1 or text.count(old) != 1:
+        raise SystemExit("unexpected VirtioGpuContext.cpp")
+    text = text.replace(marker, 'extern "C" uint64_t idorid_resolve_puid(uint32_t ctx, int release);\n\n' + marker, 1)
+    text = text.replace(old, "    if (uint64_t puid = idorid_resolve_puid(mId, 1)) {\n        android_cleanupProcGLObjects(puid);\n    }\n", 1)
+    vc.write_text(text)
+
+# ProcessResources are created per context at context creation; key them by
+# the resolved per-process puid as well (one shared entry per guest process).
+fbp = pathlib.Path(sys.argv[1]) / "host/FrameBuffer.cpp"
+text = fbp.read_text()
+if "idorid: per-process ProcessResources" not in text:
+    old = """void FrameBuffer::createGraphicsProcessResources(uint64_t puid) {
+    bool inserted = false;
+    {
+        AutoLock mutex(m_procOwnedResourcesLock);
+        inserted = m_procOwnedResources.try_emplace(puid, ProcessResources::create()).second;
+    }
+    if (!inserted) {
+        WARN("Failed to create process resource for puid %" PRIu64 ".", puid);
+    }
+}"""
+    new = """void FrameBuffer::createGraphicsProcessResources(uint64_t puid) {
+    // idorid: per-process ProcessResources; later contexts of the same guest
+    // process reuse the entry.
+    if (puid <= 0xffffffffull) {
+        puid = idorid_resolve_puid(static_cast<uint32_t>(puid), 0);
+    }
+    AutoLock mutex(m_procOwnedResourcesLock);
+    if (m_procOwnedResources.find(puid) == m_procOwnedResources.end()) {
+        m_procOwnedResources.emplace(puid, ProcessResources::create());
+    }
+}"""
+    old2 = """        auto i = m_procOwnedResources.find(puid);
+        if (i != m_procOwnedResources.end()) {
+            return i->second.get();
+        }
+    }
+    ERR("Failed to find process owned resources for puid %" PRIu64 ".", puid);
+    return nullptr;"""
+    new2 = """        auto i = m_procOwnedResources.find(puid);
+        if (i != m_procOwnedResources.end()) {
+            return i->second.get();
+        }
+        // idorid: create on first use (puid resolved per guest process).
+        return m_procOwnedResources.emplace(puid, ProcessResources::create()).first->second.get();
+    }"""
+    if text.count(old) != 1 or text.count(old2) != 1:
+        raise SystemExit("unexpected FrameBuffer ProcessResources code")
+    text = text.replace(old, new, 1).replace(old2, new2, 1)
+    text = text.replace("namespace gfxstream {\n", 'extern "C" uint64_t idorid_resolve_puid(uint32_t ctx, int release);\n\nnamespace gfxstream {\n', 1)
+    fbp.write_text(text)

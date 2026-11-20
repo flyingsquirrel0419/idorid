@@ -1321,14 +1321,25 @@ impl Node for Binder {
             }
             c if c == ioc(3, b'b' as u32, 12, 24) => {
                 let handle = ctx.mm.read_u32(arg).ok_or(EFAULT)?;
+                // GET_NODE_INFO_FOR_REF reports the *node's* counts like
+                // Linux (internal refs: one per process holding a strong /
+                // any reference), not the caller's own ref; hwservicemanager
+                // uses strong > 1 to decide whether a lazy HAL has clients.
                 let (strong, weak) = {
                     let s = self.context.state.lock();
-                    let r = s
+                    let node = s
                         .procs
                         .get(&self.id)
                         .and_then(|p| p.handles.get(&handle))
-                        .ok_or(EINVAL)?;
-                    (r.strong, r.weak)
+                        .ok_or(EINVAL)?
+                        .node;
+                    s.procs
+                        .values()
+                        .flat_map(|p| p.handles.values())
+                        .filter(|r| r.node == node)
+                        .fold((0u32, 0u32), |(st, wk), r| {
+                            (st + (r.strong > 0) as u32, wk + (r.strong > 0 || r.weak > 0) as u32)
+                        })
                 };
                 let mut result = [0u8; 24];
                 put32(&mut result, 0, handle);

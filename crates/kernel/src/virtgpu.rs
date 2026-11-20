@@ -337,17 +337,62 @@ impl State {
     fn ensure_context(
         &mut self,
         backend: &Arc<dyn GpuBackend>,
+        pid: i32,
     ) -> vfs::Result<(Arc<dyn GpuBackend>, u32)> {
         if let Some(context) = &self.context {
             return Ok(context.clone());
         }
-        let id = NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed);
+        let id = new_context_id(pid);
         backend.context_create(id, 0)?;
         self.context = Some((backend.clone(), id));
         Ok((backend.clone(), id))
     }
 }
 static NEXT_CONTEXT: AtomicU32 = AtomicU32::new(1);
+
+/// Renderer process identity per context: (context -> puid, puid -> live
+/// contexts). Guest Vulkan numbers commands per process, and the renderer
+/// checks them per puid, so all contexts of one guest process share a puid.
+static CONTEXT_PUIDS: std::sync::LazyLock<
+    Mutex<(
+        std::collections::HashMap<u32, u64>,
+        std::collections::HashMap<u64, usize>,
+    )>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn new_context_id(pid: i32) -> u32 {
+    let id = NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed);
+    // Above the context-id range so it never collides with a bare context id.
+    let puid = (1u64 << 32) | pid as u32 as u64;
+    let mut map = CONTEXT_PUIDS.lock();
+    map.0.insert(id, puid);
+    *map.1.entry(puid).or_default() += 1;
+    id
+}
+
+/// The renderer's puid for a context. With `release`, the context is being
+/// destroyed: returns the puid to clean up once its last context is gone,
+/// else 0.
+pub fn context_puid(ctx: u32, release: bool) -> u64 {
+    let mut map = CONTEXT_PUIDS.lock();
+    let Some(&puid) = map.0.get(&ctx) else {
+        return ctx as u64;
+    };
+    if !release {
+        return puid;
+    }
+    map.0.remove(&ctx);
+    let left = map.1.get_mut(&puid).map(|n| {
+        *n -= 1;
+        *n
+    });
+    if left == Some(0) {
+        map.1.remove(&puid);
+        puid
+    } else {
+        0
+    }
+}
 static NEXT_RESOURCE: AtomicU32 = AtomicU32::new(1);
 
 impl VirtGpu {
@@ -490,7 +535,7 @@ impl Node for VirtGpu {
                     return Err(EINVAL);
                 }
                 let mut state = self.state.lock();
-                let (backend, context) = state.ensure_context(&backend)?;
+                let (backend, context) = state.ensure_context(&backend, ctx.process.pid)?;
                 let id = NEXT_RESOURCE.fetch_add(1, Ordering::Relaxed);
                 let resource = backend.create_3d(context, id, ResourceArgs { values, size })?;
                 let handle = state.next_handle;
@@ -546,7 +591,7 @@ impl Node for VirtGpu {
                 if state.context.is_some() {
                     return Err(EBUSY);
                 }
-                let id = NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed);
+                let id = new_context_id(ctx.process.pid);
                 backend.context_create(id, capset)?;
                 state.context = Some((backend, id));
                 Ok(0)
@@ -568,7 +613,7 @@ impl Node for VirtGpu {
                     return Err(EINVAL);
                 }
                 let mut state = self.state.lock();
-                let (backend, context) = state.ensure_context(&backend)?;
+                let (backend, context) = state.ensure_context(&backend, ctx.process.pid)?;
                 if cmd_size != 0 {
                     let mut cmd = vec![0; cmd_size];
                     if !ctx.mm.read(cmd_ptr, &mut cmd) {
@@ -673,7 +718,7 @@ impl Node for VirtGpu {
                 let (backend, context) = {
                     let mut state = self.state.lock();
                     if state.context.is_none() {
-                        let id = NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed);
+                        let id = new_context_id(ctx.process.pid);
                         backend.context_create(id, 0).inspect_err(|e| {
                             eprintln!("virtgpu: implicit context_create failed {e}")
                         })?;

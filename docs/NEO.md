@@ -46,26 +46,37 @@ system_server → SurfaceFlinger → launcher) inside the iOS app process.
 4. zygote + system_server boot; SurfaceFlinger to a host framebuffer.
 5. Launcher on screen, touch input; then AOT and GPU.
 
-## Status (2026-11-19)
+## Status (2026-11-20)
 
-The unmodified Android 13 emulator ROM boots on our CPU and kernel up to
-`system_server`:
+The unmodified Android 13 emulator ROM boots on our CPU and kernel to the
+launcher home screen:
 
 - `init second_stage`: properties, SELinux (permissive emulation with real
   file labels), ~120 rc files, ueventd, logd, lmkd;
 - servicemanager, hwservicemanager, vold, keystore2, keymint, ~40 HALs;
-- zygote: ART initializes, preloads classes, resources and libraries, and
-  forks `system_server`, which starts its bootstrap services;
+- zygote (ART, no JIT) forks `system_server`, which runs through every boot
+  phase ("Boot is finished" after ~160 s) and starts SystemUI, Launcher3 and
+  the other persistent apps; Java exceptions (ART's SIGSEGV-based null
+  checks) work;
 - netd runs on our bpf(2) emulation;
-- **graphics:** SurfaceFlinger renders with ANGLE on Vulkan through
-  virtio-gpu + gfxstream (host: lavapipe on Linux, MoltenVK on iOS), the
-  ranchu HWC composes, and the boot animation runs:
+- **graphics:** SurfaceFlinger, SystemUI and apps render with ANGLE on Vulkan
+  through virtio-gpu + gfxstream (host: lavapipe on Linux, MoltenVK on iOS);
+  the ranchu HWC composes.
 
+<p>
   <img src="img/neo-bootanim.png" width="240" alt="Android 13 boot animation on idorid neo">
+  <img src="img/neo-launcher.png" width="240" alt="Android 13 launcher home screen on idorid neo">
+</p>
 
-Next: system_server past the boot phases to SystemUI and the launcher.
+Next: touch input, the display in the iOS app, and speed (AOT).
 
-Speed today: ~40 M guest instructions/s (interpreter with a decoded block
+Device state the ROM's setup expects (done once per state directory, from the
+console shell): `settings put global device_provisioned 1; settings put
+secure user_setup_complete 1; pm disable-user com.android.sdksetup` (the
+emulator setup wizard needs wifi), and `settings put global bluetooth_on 0;
+pm disable-user com.android.bluetooth` (no bluetooth HAL).
+
+Speed today: ~55 M guest instructions/s (interpreter with a decoded block
 cache). In progress: build-time AOT of profile-selected hot ROM pages.
 
 `idorid neo-install <rom.zip> <dir>` installs a Google system image (sparse
@@ -90,7 +101,8 @@ pages, input for AOT).
 
 `rom-overlay/` holds our patches to the ROM (layered over it read-only):
 64-bit-only zygote, flattened APEX, an fstab without logical partitions, and
-stubs for apexd and iptables.
+stubs for apexd and iptables, and wifi/bluetooth feature files removed
+(no such hardware).
 
 ## ROM
 

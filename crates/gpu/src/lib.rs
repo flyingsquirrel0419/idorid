@@ -178,6 +178,8 @@ pub struct Api {
         Option<unsafe extern "C" fn(Option<unsafe extern "C" fn(u32, u32, *const u8)>)>,
     pub set_dma_resolver:
         Option<unsafe extern "C" fn(Option<unsafe extern "C" fn(u64) -> *mut libc::c_void>)>,
+    pub set_puid_resolver:
+        Option<unsafe extern "C" fn(Option<unsafe extern "C" fn(u32, libc::c_int) -> u64>)>,
 }
 impl Api {
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -211,6 +213,7 @@ impl Api {
             flush: sym!("stream_renderer_flush"),
             set_frame_callback: unsafe { lib.symbol(c"idorid_set_frame_callback").ok() },
             set_dma_resolver: unsafe { lib.symbol(c"idorid_set_dma_resolver").ok() },
+            set_puid_resolver: unsafe { lib.symbol(c"idorid_set_puid_resolver").ok() },
             _library: lib,
         })
     }
@@ -225,6 +228,12 @@ pub struct Renderer {
 }
 type FenceCallback = Box<dyn Fn(Fence) + Send + Sync>;
 static RENDERER_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// gfxstream asks which guest process a context belongs to (see
+/// idorid_kernel::virtgpu::context_puid).
+unsafe extern "C" fn puid_resolve(ctx: u32, release: libc::c_int) -> u64 {
+    idorid_kernel::virtgpu::context_puid(ctx, release != 0)
+}
 
 /// gfxstream asks for the host address of guest DMA buffers (goldfish
 /// address-space blocks) on its render threads.
@@ -313,6 +322,10 @@ impl Renderer {
         match api.set_dma_resolver {
             Some(set_resolver) => unsafe { set_resolver(Some(dma_resolve)) },
             None => eprintln!("gfxstream backend has no idorid DMA resolver hook"),
+        }
+        match api.set_puid_resolver {
+            Some(set_resolver) => unsafe { set_resolver(Some(puid_resolve)) },
+            None => eprintln!("gfxstream backend has no idorid puid resolver hook"),
         }
         if std::env::var_os("IDORID_FB_DUMP").is_some() {
             match api.set_frame_callback {
