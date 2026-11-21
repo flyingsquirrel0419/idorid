@@ -110,25 +110,25 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "idorid-a64"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "idorid-aot"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-a64",
 ]
 
 [[package]]
 name = "idorid-apk"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "zip",
 ]
 
 [[package]]
 name = "idorid-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-apk",
  "idorid-dex",
@@ -143,11 +143,11 @@ dependencies = [
 
 [[package]]
 name = "idorid-dex"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "idorid-ffi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-apk",
  "idorid-kernel",
@@ -158,7 +158,7 @@ dependencies = [
 
 [[package]]
 name = "idorid-gpu"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-kernel",
  "libc",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "idorid-kernel"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-a64",
  "idorid-aot",
@@ -178,14 +178,14 @@ dependencies = [
 
 [[package]]
 name = "idorid-rom"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "zip",
 ]
 
 [[package]]
 name = "idorid-vm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "idorid-dex",
 ]

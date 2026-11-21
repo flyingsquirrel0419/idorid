@@ -421,8 +421,8 @@ fn aot_simple_simd_matches_interpreter() {
         mem.map(0x1000, 4096, 7);
         let mut a = Cpu::new();
         a.pc = 0x1000;
-        for i in 0..32 {
-            a.v[i] = 0x7766554433221100ffeeddccbbaa9988u128.rotate_left(i as u32);
+        for (i, v) in a.v.iter_mut().enumerate() {
+            *v = 0x7766554433221100ffeeddccbbaa9988u128.rotate_left(i as u32);
         }
         let mut b = a.clone();
         assert_eq!(a.run(&mem, 1), Exit::Budget);

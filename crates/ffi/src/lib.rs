@@ -8,8 +8,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 mod image_size;
-pub mod neo;
 mod manifest_themes;
+pub mod neo;
 
 type MeasureTextFn = unsafe extern "C" fn(*const c_char, f32, i32, f32, *mut f32);
 static TEXT_MEASURER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());

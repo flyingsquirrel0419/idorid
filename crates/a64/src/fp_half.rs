@@ -39,9 +39,8 @@ fn convert(cpu: &mut Cpu, insn: u32, arithmetic: bool) -> bool {
             }
         } else if !alternate && exp == 31 {
             sign | 0x7ff0_0000_0000_0000
-        } else if exp == 0 && frac == 0 {
-            sign
-        } else if exp == 0 && arithmetic && cpu.fpcr & (1 << 19) != 0 {
+        } else if exp == 0 && (frac == 0 || (arithmetic && cpu.fpcr & (1 << 19) != 0)) {
+            // Zero, or a denormal flushed by FZ16.
             sign
         } else {
             let val = if exp == 0 {

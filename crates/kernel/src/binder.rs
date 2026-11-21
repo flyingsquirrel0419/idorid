@@ -98,6 +98,8 @@ struct Thread {
     looper: bool,
     waiting: bool,
 }
+// Transactions dominate the queues; boxing them would only add allocations.
+#[allow(clippy::large_enum_variant)]
 enum Work {
     Command(u32),
     Bytes(Vec<u8>),
@@ -420,7 +422,6 @@ impl Binder {
                     .get_mut(&self.id)
                     .and_then(|p| p.threads.get_mut(&tid))
                     .and_then(|t| t.stack.pop())
-                    .map(|(p, t, allow)| (p, t, allow))
             } else if get32(b, 0) == 0 {
                 s.manager.map(|id| {
                     (
@@ -853,8 +854,8 @@ fn prepare_objects(ctx: &Ctx, data: &[u8], offsets: &[u8], sg_size: u64) -> Resu
     let mut prepared = Prepared::default();
     let mut parents: HashMap<usize, (usize, usize)> = HashMap::new();
     let mut previous_end = 0;
-    for (index, chunk) in offsets.chunks_exact(8).enumerate() {
-        let off = u64::from_le_bytes(chunk.try_into().unwrap()) as usize;
+    for (index, chunk) in offsets.as_chunks::<8>().0.iter().enumerate() {
+        let off = u64::from_le_bytes(*chunk) as usize;
         if off < previous_end || off.checked_add(24).is_none_or(|end| end > data.len()) {
             return Err(EINVAL);
         }
@@ -1070,8 +1071,8 @@ fn translate_objects(
     refs: &mut Vec<(u32, bool)>,
 ) -> Result<()> {
     let mut previous_end = 0usize;
-    for chunk in offsets.chunks_exact(8) {
-        let offset = u64::from_le_bytes(chunk.try_into().unwrap()) as usize;
+    for chunk in offsets.as_chunks::<8>().0 {
+        let offset = u64::from_le_bytes(*chunk) as usize;
         if offset < previous_end || offset.checked_add(24).is_none_or(|end| end > data.len()) {
             return Err(EINVAL);
         }
@@ -1338,7 +1339,10 @@ impl Node for Binder {
                         .flat_map(|p| p.handles.values())
                         .filter(|r| r.node == node)
                         .fold((0u32, 0u32), |(st, wk), r| {
-                            (st + (r.strong > 0) as u32, wk + (r.strong > 0 || r.weak > 0) as u32)
+                            (
+                                st + (r.strong > 0) as u32,
+                                wk + (r.strong > 0 || r.weak > 0) as u32,
+                            )
                         })
                 };
                 let mut result = [0u8; 24];
@@ -1367,7 +1371,8 @@ impl Node for Binder {
         let s = self.context.state.lock();
         let ready = s.procs.get(&self.id).is_some_and(|p| {
             let thread = tid.and_then(|tid| p.threads.get(&tid));
-            let available = thread.is_none_or(|t| t.looper && t.waiting_on.is_none() && t.stack.is_empty());
+            let available =
+                thread.is_none_or(|t| t.looper && t.waiting_on.is_none() && t.stack.is_empty());
             (available && !p.todo.is_empty()) || thread.is_some_and(|t| !t.todo.is_empty())
         });
         POLLOUT | if ready { POLLIN } else { 0 }

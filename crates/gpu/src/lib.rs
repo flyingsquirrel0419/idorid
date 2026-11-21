@@ -726,6 +726,11 @@ fn renderer_result(ret: i32) -> idorid_kernel::vfs::Result<()> {
     }
 }
 
+fn gpu_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("IDORID_GPU_DEBUG").is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,9 +738,4 @@ mod tests {
     fn missing_library_is_an_error() {
         assert!(Library::open(Path::new("/nonexistent/idorid-gfxstream.so")).is_err());
     }
-}
-
-fn gpu_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("IDORID_GPU_DEBUG").is_some())
 }

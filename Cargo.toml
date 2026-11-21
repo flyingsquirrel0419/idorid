@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/aot", "crates/a64", "crates/rom", "crates/kernel", "crates/gpu", "crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/flyingsquirrel0419/idorid"

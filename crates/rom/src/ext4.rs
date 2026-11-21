@@ -142,7 +142,7 @@ impl<R: Read + Seek> Ext4<R> {
         } else {
             // Legacy block map: 12 direct, then single/double/triple indirect.
             let ptrs: Vec<u32> = (0..15).map(|i| u32le(&ino.block, i * 4)).collect();
-            let per = (self.block_size / 4) as u64;
+            let per = self.block_size / 4;
             let mut logical = 0u64;
             for (i, &p) in ptrs.iter().enumerate() {
                 let depth = if i < 12 { 0 } else { i - 11 };

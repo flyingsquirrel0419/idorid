@@ -8,8 +8,11 @@ use idorid_a64::{Access, AddressSpace, Cpu, Exit, PAGE_SIZE};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
+/// Page contents and protection bits, by page number.
+type PageMap = HashMap<u64, (Box<[u8; 4096]>, u8)>;
+
 pub struct Pages {
-    map: RefCell<HashMap<u64, (Box<[u8; 4096]>, u8)>>,
+    map: RefCell<PageMap>,
     gen: Cell<u64>,
     aot: Cell<Option<(u64, idorid_a64::mem::AotUnit)>>,
 }
@@ -332,12 +335,12 @@ pub fn run_elf_with_aot(
                         mem.map(a[0], a[1], prot);
                         0
                     }
-                    96 => 1000,                 // set_tid_address
+                    96 => 1000,                // set_tid_address
                     99 | 134 | 135 | 233 => 0, // set_robust_list, rt_sigaction, rt_sigprocmask, madvise
                     293 => -38,                // rseq
                     261 => -38,                // prlimit64
                     172 | 178 => 1000,         // getpid, gettid
-                    174 | 175 | 176 | 177 => 0, // getuid...
+                    174..=177 => 0,            // getuid...
                     278 => {
                         // getrandom
                         mem.write(a[0], &vec![0x42; a[1] as usize]);

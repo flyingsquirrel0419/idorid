@@ -63,7 +63,8 @@ pub fn dispatch(ctx: &Ctx, cpu: &mut Cpu) -> Flow {
         }
         139 => {
             if trace {
-                ctx.kernel.log(&format!("[{}] rt_sigreturn", ctx.thread.tid));
+                ctx.kernel
+                    .log(&format!("[{}] rt_sigreturn", ctx.thread.tid));
             }
             if !ctx.sigreturn(cpu) {
                 ctx.kernel
@@ -3473,7 +3474,12 @@ fn sys_process_vm(ctx: &Ctx, write: bool, a: [u64; 6]) -> i64 {
     };
     let read_iov = |base: u64, n: u64| -> Option<Vec<(u64, u64)>> {
         (0..n)
-            .map(|i| Some((ctx.mm.read_u64(base + i * 16)?, ctx.mm.read_u64(base + i * 16 + 8)?)))
+            .map(|i| {
+                Some((
+                    ctx.mm.read_u64(base + i * 16)?,
+                    ctx.mm.read_u64(base + i * 16 + 8)?,
+                ))
+            })
             .collect()
     };
     let (Some(local), Some(far)) = (read_iov(liov, lcnt), read_iov(riov, rcnt)) else {
@@ -3497,10 +3503,7 @@ fn sys_process_vm(ctx: &Ctx, write: bool, a: [u64; 6]) -> i64 {
             continue;
         }
         let raddr = rb + ro;
-        let n = (ll - lo)
-            .min(rl - ro)
-            .min(4096 - (raddr & 4095))
-            .min(4096) as usize;
+        let n = (ll - lo).min(rl - ro).min(4096 - (raddr & 4095)).min(4096) as usize;
         let ok = if write {
             ctx.mm.read(lb + lo, &mut buf[..n]) && remote.write(raddr, &buf[..n])
         } else {
