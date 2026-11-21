@@ -1,0 +1,9 @@
+[package]
+name = "idorid-a64"
+description = "AArch64 user-mode CPU interpreter (no JIT) for idorid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

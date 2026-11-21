@@ -2,10 +2,11 @@
 
 # idorid
 
-**Run Android apps on a stock iPhone. No JIT, no emulator, no jailbreak.**
+**Run Android on a stock iPhone. No JIT, no jailbreak.**
 
-A Dalvik bytecode interpreter and a small Android framework, written in Rust,
-rendering real Android apps as native UIKit views.
+Two engines in Rust: a Dalvik interpreter with a small Android framework that
+renders APKs as native UIKit views, and **neo**, an AArch64 interpreter plus a
+Linux-ABI kernel that boots the real, unmodified Android 13.
 
 [![CI](https://github.com/flyingsquirrel0419/idorid/actions/workflows/ci.yml/badge.svg)](https://github.com/flyingsquirrel0419/idorid/actions/workflows/ci.yml)
 [![iOS IPA](https://github.com/flyingsquirrel0419/idorid/actions/workflows/ios.yml/badge.svg)](https://github.com/flyingsquirrel0419/idorid/actions/workflows/ios.yml)
@@ -49,6 +50,29 @@ Material Components code inside the APK is executed as-is, themes and styles
 resolve through `resources.arsc`, and `ConstraintLayout` from the APK lays the
 screen out. Kotlin apps work too (the Kotlin stdlib is just more bytecode).
 
+## New in 1.0: real Android 13 (neo)
+
+neo runs the unmodified Android 13 arm64 system image (Google's emulator
+image, downloaded from the public Android SDK repository) in user space:
+an AArch64 interpreter with a decoded block cache (`crates/a64`, ~55 M
+instructions/s) and a kernel that implements the Linux ABI Android needs
+(`crates/kernel`: processes, threads, futexes, signals, mmap, binder, ashmem,
+epoll, netlink, bpf, virtio-gpu, ...). `init` starts ~120 services, zygote
+forks `system_server`, and SurfaceFlinger, SystemUI and Launcher3 render with
+ANGLE on Vulkan through gfxstream:
+
+<p align="center">
+  <img src="docs/img/neo-bootanim.png" width="240" alt="Android 13 boot animation on idorid neo">
+  <img src="docs/img/neo-launcher.png" width="240" alt="Android 13 launcher home screen on idorid neo">
+</p>
+
+No code is generated at run time, so it fits iOS's rules. Status: the home
+screen above is from a Linux host (gfxstream on lavapipe). On iPhone the app
+downloads, installs and boots the image with console and logcat output; the
+on-device display (gfxstream on MoltenVK) and touch input are the next
+milestones, then speed (build-time AOT of hot ROM code). Boot takes ~160 s on
+the interpreter today. Details: [docs/NEO.md](docs/NEO.md).
+
 ## Why this is different
 
 iOS does not let ordinary apps create executable memory. Every Android-on-iOS
@@ -57,7 +81,9 @@ debugger tricks, iOS-version roulette) or is not open source.
 
 idorid takes the other road:
 
-| | Full-system emulators | **idorid** |
+The APK runtime takes a different road from emulators:
+
+| | Full-system emulators | **idorid APK runtime** |
 |---|---|---|
 | Needs JIT / debugger attach | usually | **never**: only signed code runs; bytecode is data |
 | Boots Android | yes (seconds to minutes, GBs) | **no**: an app starts in milliseconds |
@@ -151,6 +177,9 @@ translation into the IPA, or an ARM64 interpreter. Neither is a weekend project.
    unsigned; your tool signs it with your Apple ID. No JIT enabler is needed.
 3. Open idorid, tap **+**, pick an `.apk` from Files (or share an APK to
    idorid), and tap it to run.
+4. Experimental: **Android 13 (neo)** downloads Google's Android 13 system
+   image (~670 MB) on the device, installs it and boots it, showing the console
+   and logcat (no display on the phone yet).
 
 The app ships with demos: Todo (views, dialogs, preferences), Paint (Canvas
 custom view, touch, animation), Calc (Kotlin), Hello AndroidX (the Android
@@ -204,6 +233,9 @@ for the examples.
 - [ ] Green threads (the non-recursive interpreter is already built for it)
 - [ ] Networking (`HttpURLConnection`/OkHttp) over `URLSession`, files, SQLite
 - [ ] Research: static ARM64 → signed-code translation for JNI libraries
+- [x] neo: boot unmodified Android 13 to the launcher (AArch64 interpreter + Linux-ABI kernel + gfxstream)
+- [ ] neo: display and touch on iPhone (gfxstream on MoltenVK)
+- [ ] neo: speed: build-time AOT of profile-selected ROM code
 
 ## Project layout
 
@@ -213,7 +245,13 @@ for the examples.
 | `crates/vm` | interpreter, heap/GC, class loader, natives |
 | `crates/apk` | APK, binary XML, resources.arsc |
 | `crates/ffi` | `App` driver + C ABI (`include/idorid.h`) |
-| `crates/cli` | `idorid` command-line runner |
+| `crates/cli` | `idorid` command-line runner (`idorid neo` boots Android) |
+| `crates/a64` | neo: AArch64 interpreter |
+| `crates/kernel` | neo: Linux ABI (processes, binder, virtio-gpu, ...) |
+| `crates/gpu` | neo: gfxstream renderer binding |
+| `crates/rom` | neo: system image installer (sparse, super, ext4, APEX) |
+| `crates/aot` | neo: build-time AOT of hot guest code (experimental) |
+| `rom-overlay/` | neo: our patches layered over the Android ROM |
 | `core/src` | Java class library + Android framework shim → `core.dex` |
 | `ios/` | Swift UIKit host and IPA build script |
 | `tests/java` | differential tests, `tests/bench` benchmarks |
@@ -232,7 +270,8 @@ Built by a human with Claude Code and OpenAI Codex (`gpt-6.1-terra`) working as
 pair programmers. idorid re-implements Android APIs from their public
 documentation. The only AOSP-derived data is a trimmed copy of the framework
 resource table (`crates/apk/framework-res.bin`, Apache-2.0), used to resolve
-`android:` themes and attributes. Not affiliated with Google or Apple. Android is a trademark
+`android:` themes and attributes. neo boots Google's Android system image, which
+the user downloads from Google; it is not redistributed. Not affiliated with Google or Apple. Android is a trademark
 of Google LLC.
 
 ## License

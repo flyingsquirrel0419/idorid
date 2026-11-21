@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
+members = ["crates/aot", "crates/a64", "crates/rom", "crates/kernel", "crates/gpu", "crates/dex", "crates/vm", "crates/apk", "crates/ffi", "crates/cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/flyingsquirrel0419/idorid"
@@ -23,3 +23,19 @@ panic = "unwind"
 inherits = "release"
 debug = true
 strip = false
+
+# Optimized build that compiles quickly (neo boot experiments).
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+strip = false
+panic = "unwind"
+
+# The CPU interpreter and kernel are far too slow unoptimized (tests boot real
+# guest programs).
+[profile.dev.package.idorid-a64]
+opt-level = 3
+[profile.dev.package.idorid-kernel]
+opt-level = 2

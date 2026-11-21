@@ -1,0 +1,12 @@
+#!/system/bin/sh
+# idorid neo: APEXes are already activated under /apex (installed by
+# idorid-rom / tools/fetch-rom.sh), so apexd only reports status. init waits
+# for apexd.status=activated in post-fs-data; "ready" comes later, as with the
+# real apexd, once boot has completed.
+case "$1" in
+  --bootstrap|--otachroot-bootstrap|--unmount-all|--snapshotde|--vm) exit 0 ;;
+esac
+setprop apexd.status activated
+while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 5; done
+setprop apexd.status ready
+exec sleep 2147483647

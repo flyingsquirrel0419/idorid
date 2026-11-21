@@ -35,6 +35,26 @@ fn main() -> ExitCode {
         return usage();
     };
     match cmd.as_str() {
+        "neo" => neo(&args[1..]),
+        "neo-install" if args.len() >= 3 => {
+            // idorid neo-install <system-image.zip> <out-dir>
+            let out = std::path::PathBuf::from(&args[2]);
+            let work = out.with_extension("work");
+            let t0 = std::time::Instant::now();
+            match idorid_rom::install(std::path::Path::new(&args[1]), &out, &work, &mut |m| {
+                eprintln!("[install] {m}")
+            }) {
+                Ok(()) => {
+                    let _ = std::fs::remove_dir_all(&work);
+                    eprintln!("installed in {:?}", t0.elapsed());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("install failed: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         "missing" if args.len() >= 2 => {
             // Framework APIs referenced by the app but absent from core.dex.
             let mut vm = Vm::new();
@@ -331,4 +351,152 @@ fn run_app(path: &str, script: &[String], stats: bool) -> ExitCode {
         );
     }
     ExitCode::SUCCESS
+}
+
+/// `idorid neo [--rom DIR] [--state DIR] [--env K=V]... -- PATH [ARGS...]`:
+/// runs a guest aarch64 Linux program from the ROM on the neo kernel.
+fn neo(args: &[String]) -> ExitCode {
+    use std::sync::Arc;
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut rom = std::path::PathBuf::from(format!("{home}/aosp/rom13"));
+    let mut state = std::path::PathBuf::from(format!("{home}/aosp/state13"));
+    let mut env: Vec<String> = vec![
+        "PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin".into(),
+        "ANDROID_ROOT=/system".into(),
+        "ANDROID_DATA=/data".into(),
+        "ANDROID_ART_ROOT=/apex/com.android.art".into(),
+        "ANDROID_I18N_ROOT=/apex/com.android.i18n".into(),
+        "ANDROID_TZDATA_ROOT=/apex/com.android.tzdata".into(),
+        "HOME=/".into(),
+        "TERM=dumb".into(),
+    ];
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--rom" => {
+                rom = args[i + 1].clone().into();
+                i += 2;
+            }
+            "--state" => {
+                state = args[i + 1].clone().into();
+                i += 2;
+            }
+            "--env" => {
+                env.push(args[i + 1].clone());
+                i += 2;
+            }
+            "--" => {
+                i += 1;
+                break;
+            }
+            _ => break,
+        }
+    }
+    let prog = &args[i..];
+    if prog.is_empty() {
+        eprintln!("usage: idorid neo [--rom DIR] [--state DIR] [--env K=V] -- /system/bin/sh -c 'echo hi'");
+        return ExitCode::from(2);
+    }
+    // rom-overlay/<variant> (ROM-specific patches) over rom-overlay/common.
+    let overlays = {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rom-overlay");
+        let variant = if rom.join("vendor/etc/init/init.cutf_cvm.rc").exists() {
+            "cf13"
+        } else {
+            "emu13"
+        };
+        if variant == "cf13" && std::env::var_os("IDORID_CMDLINE").is_none() {
+            // Cuttlefish "guest_swiftshader" configuration: SwiftShader Vulkan
+            // + ANGLE in the guest, minigbm gralloc, DRM/KMS client composition.
+            std::env::set_var(
+                "IDORID_CMDLINE",
+                "androidboot.hardware=cutf_cvm androidboot.selinux=permissive androidboot.fstab_suffix=idorid \
+                 androidboot.hardware.gralloc=minigbm androidboot.hardware.hwcomposer=ranchu \
+                 androidboot.hardware.hwcomposer.mode=client androidboot.hardware.hwcomposer.display_finder_mode=drm \
+                 androidboot.hardware.egl=angle androidboot.hardware.vulkan=pastel androidboot.cpuvulkan.version=4202496 \
+                 androidboot.opengles.version=196609 androidboot.lcd_density=320 androidboot.serialno=IDORID0001 \
+                 androidboot.hw_timeout_multiplier=20 androidboot.slot_suffix=_a androidboot.force_normal_boot=1",
+            );
+        }
+        vec![base.join(variant), base.join("common")]
+    };
+    let k = idorid_kernel::Kernel::new(idorid_kernel::Config {
+        rom,
+        state,
+        overlays,
+        console: Arc::new(|b: &[u8]| {
+            use std::io::Write;
+            let mut o = std::io::stdout().lock();
+            let _ = o.write_all(b);
+            let _ = o.flush();
+        }),
+    });
+    if let Some(path) = std::env::var_os("IDORID_GFXSTREAM") {
+        match idorid_gpu::KernelBackend::load(std::path::Path::new(&path)) {
+            Ok(backend) => k.set_gpu_backend(Some(backend)),
+            Err(err) => {
+                eprintln!("gfxstream initialization failed: {err}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    // Host stdin feeds the guest console (init's `console` shell).
+    {
+        let console = k.console.clone();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 256];
+            let mut stdin = std::io::stdin();
+            while let Ok(n) = stdin.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                console.push_input(&buf[..n]);
+            }
+        });
+    }
+    // `kill -USR1 <idorid>` dumps every guest thread's syscall and backtrace.
+    {
+        static DUMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        extern "C" fn on_usr1(_: libc::c_int) {
+            DUMP.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
+        let k = k.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if DUMP.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("[neo] binder:\n{}", idorid_kernel::binder::dump());
+                eprintln!("[neo] threads:\n{}", idorid_kernel::task::dump_threads(&k));
+            }
+        });
+    }
+    let argv: Vec<&str> = prog.iter().map(|s| s.as_str()).collect();
+    let envp: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
+    let t0 = std::time::Instant::now();
+    let pid = match k.spawn(&prog[0], &argv, &envp) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("exec {} failed: errno {}", prog[0], -e);
+            return ExitCode::from(127);
+        }
+    };
+    k.wait_idle(None);
+    k.set_gpu_backend(None);
+    if let Some(p) = &k.profile {
+        p.dump();
+    }
+    let insns = k.insns.load(std::sync::atomic::Ordering::Relaxed);
+    let secs = t0.elapsed().as_secs_f64();
+    eprintln!(
+        "[neo] done in {:.3}s, {} guest instructions ({:.1} MIPS)",
+        secs,
+        insns,
+        insns as f64 / secs / 1e6
+    );
+    match k.exit_status(pid) {
+        Some(idorid_kernel::task::ExitStatus::Exited(c)) => ExitCode::from(c as u8),
+        Some(idorid_kernel::task::ExitStatus::Signaled(s, _)) => ExitCode::from(128 + s as u8),
+        None => ExitCode::SUCCESS,
+    }
 }

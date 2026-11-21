@@ -1,0 +1,6 @@
+typedef unsigned long u64;static char out[4096];static unsigned pos;static void hex(u64 x){for(int i=60;i>=0;i-=4)out[pos++]="0123456789abcdef"[(x>>i)&15];out[pos++]='\n';}
+#define OP64(op) do {u64 old;v=0x8000000000000012UL;__asm__ volatile(op " %2,%0,[%1]":"=&r"(old):"r"(&v),"r"(7UL):"memory");hex(old);hex(v);}while(0)
+#define OP32(op) do {unsigned old; w=0x80000012U;__asm__ volatile(op " %w2,%w0,[%1]":"=&r"(old):"r"(&w),"r"(7U):"memory");hex(old);hex(w);}while(0)
+#define OP8(op) do {unsigned old; b=0x92;__asm__ volatile(op " %w2,%w0,[%1]":"=&r"(old):"r"(&b),"r"(7U):"memory");hex(old);hex(b);}while(0)
+#define OP16(op) do {unsigned old; h=0x8012;__asm__ volatile(op " %w2,%w0,[%1]":"=&r"(old):"r"(&h),"r"(7U):"memory");hex(old);hex(h);}while(0)
+void _start(void){u64 v;unsigned w;unsigned char b;unsigned short h;OP64("ldaddal");OP64("ldclral");OP64("ldeoral");OP64("ldsetal");OP64("ldsmaxal");OP64("ldsminal");OP64("ldumaxal");OP64("lduminal");OP64("swpal");OP32("ldsmax");OP32("ldsmin");OP8("ldsmaxb");OP8("ldsminb");OP8("ldaddalb");OP16("ldsmaxh");OP16("ldsminh");OP16("ldaddalh");OP32("ldaddal");register u64 a __asm__("x0")=1,c __asm__("x1")=(u64)out,d __asm__("x2")=pos,e __asm__("x8")=64;__asm__ volatile("svc 0":"+r"(a):"r"(c),"r"(d),"r"(e):"memory");a=0;e=93;__asm__ volatile("svc 0"::"r"(a),"r"(e):"memory");__builtin_unreachable();}

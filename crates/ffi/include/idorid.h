@@ -48,6 +48,16 @@ void idorid_bytes_free(uint8_t *ptr, size_t len);
 void idorid_string_free(char *s);
 void idorid_vm_free(IdoridVm *vm);
 
+/* ---- idorid neo: real Android (crates/ffi/src/neo.rs) ---- */
+typedef void (*IdoridNeoTextFn)(void *ctx, const uint8_t *text, size_t len);
+/* Installs an Android arm64 system image zip into `out` (blocking). 0 = ok. */
+int32_t idorid_neo_install(const char *zip, const char *out, const char *work, IdoridNeoTextFn progress, void *ctx);
+/* Boots /system/bin/init from `rom`; `overlays` is ':'-separated; `cmdline`
+   may be NULL. Console + logcat lines are passed to `log`. 0 = started. */
+int32_t idorid_neo_boot(const char *rom, const char *state, const char *overlays, const char *cmdline, IdoridNeoTextFn log, void *ctx);
+void idorid_neo_touch(int32_t slot, int32_t id, int32_t x, int32_t y);
+uint64_t idorid_neo_instructions(void);
+
 #ifdef __cplusplus
 }
 #endif
